@@ -1,0 +1,8 @@
+{
+  "name": "SmartGrowth AI",
+  "description": "Financial health assessment, credit readiness indicators, grounded AI financial education, SME cash analytics, and dataset governance platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
