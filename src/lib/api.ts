@@ -84,6 +84,8 @@ export const api = {
     fullName: string;
     password: string;
     role: 'individual' | 'sme';
+    currency?: string;
+    acceptedTerms: boolean;
     businessName?: string;
     sector?: string;
   }) =>

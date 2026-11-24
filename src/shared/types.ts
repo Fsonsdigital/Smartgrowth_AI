@@ -2,6 +2,21 @@ export type UserRole = 'individual' | 'sme' | 'admin';
 export type WorkspaceMode = 'individual' | 'sme';
 export type MetricBand = 'Strong' | 'Stable' | 'Watch' | 'Critical' | 'Insufficient Data';
 
+export const SUPPORTED_CURRENCIES = [
+  { code: 'USD', label: 'USD ($) — US Dollar' },
+  { code: 'GBP', label: 'GBP (£) — British Pound' },
+  { code: 'EUR', label: 'EUR (€) — Euro' },
+  { code: 'NGN', label: 'NGN (₦) — Nigerian Naira' },
+  { code: 'KES', label: 'KES — Kenyan Shilling' },
+  { code: 'GHS', label: 'GHS — Ghanaian Cedi' },
+  { code: 'ZAR', label: 'ZAR — South African Rand' },
+  { code: 'AED', label: 'AED — UAE Dirham' },
+  { code: 'SAR', label: 'SAR — Saudi Riyal' },
+  { code: 'MYR', label: 'MYR — Malaysian Ringgit' },
+  { code: 'INR', label: 'INR (₹) — Indian Rupee' },
+  { code: 'CAD', label: 'CAD ($) — Canadian Dollar' },
+] as const;
+
 export type ScreenId =
   | 'onboarding'
   | 'auth'

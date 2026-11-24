@@ -141,9 +141,20 @@ async function main() {
 
     await test(
       'TC-04',
-      'User registration ignores admin role escalation and verifies scrypt login',
-      'Registered user receives individual/sme role (never admin); invalid password returns 401',
+      'User registration requires consent, supports global currency, ignores admin escalation & verifies scrypt login',
+      'Missing acceptedTerms returns 400; registered user gets individual/sme role (never admin) & USD profile; invalid password returns 401',
       async () => {
+        const missingConsent = await apiCall('/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: 'noconsent@test.local',
+            fullName: 'No Consent',
+            password: 'StrongPassword1!',
+            acceptedTerms: false,
+          }),
+        });
+        assert.equal(missingConsent.status, 400);
+
         const regA = await apiCall('/api/auth/register', {
           method: 'POST',
           body: JSON.stringify({
@@ -151,11 +162,17 @@ async function main() {
             fullName: 'Test User A',
             password: 'StrongPassword1!',
             role: 'admin', // attempted escalation
+            currency: 'USD',
+            acceptedTerms: true,
           }),
         });
         assert.equal(regA.status, 201);
         assert.equal(regA.body.user.role, 'individual');
         userAToken = regA.body.token;
+
+        const profA = await apiCall('/api/profiles', {}, userAToken);
+        assert.equal(profA.status, 200);
+        assert.equal(profA.body.individual.currency, 'USD');
 
         const badLogin = await apiCall('/api/auth/login', {
           method: 'POST',
@@ -171,11 +188,16 @@ async function main() {
             password: 'StrongPassword2!',
             role: 'sme',
             businessName: 'User B Retail',
+            currency: 'GBP',
+            acceptedTerms: true,
           }),
         });
         assert.equal(regB.status, 201);
         userBToken = regB.body.token;
-        return `User A role=${regA.body.user.role}, badLogin=${badLogin.status}`;
+        const profB = await apiCall('/api/profiles', {}, userBToken);
+        assert.equal(profB.status, 200);
+        assert.equal(profB.body.smes[0].currency, 'GBP');
+        return `consentGuard=${missingConsent.status}, UserA=${regA.body.user.role}/${profA.body.individual.currency}, UserB_SME=${profB.body.smes[0].currency}, badLogin=${badLogin.status}`;
       }
     );
 

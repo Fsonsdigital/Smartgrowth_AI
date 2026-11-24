@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Lock, Mail, UserCheck } from 'lucide-react';
-import type { PublicUser, ScreenId } from '../../shared/types';
+import { SUPPORTED_CURRENCIES, type PublicUser, type ScreenId } from '../../shared/types';
 import { api } from '../../lib/api';
 import { BrandMark } from '../BrandMark';
 
@@ -27,6 +27,8 @@ export function AuthScreen({
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<'individual' | 'sme'>('individual');
+  const [currency, setCurrency] = useState('USD');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [businessName, setBusinessName] = useState('');
   const [sector, setSector] = useState('Retail & Trade');
   const [error, setError] = useState<string | null>(null);
@@ -41,12 +43,19 @@ export function AuthScreen({
         const res = await api.login(email, password);
         onAuthenticated(res.token, res.user);
       } else {
+        if (!acceptedTerms) {
+          throw new Error(
+            'Please accept the Data Privacy and Educational Use notice before creating your account.'
+          );
+        }
         const res = await api.register({
           email,
           phone: phone || undefined,
           fullName,
           password,
           role,
+          currency,
+          acceptedTerms,
           businessName: role === 'sme' ? businessName : undefined,
           sector: role === 'sme' ? sector : undefined,
         });
@@ -214,21 +223,43 @@ export function AuthScreen({
                     </div>
                   )}
 
-                  <div>
-                    <label
-                      htmlFor="auth-phone"
-                      className="block text-sm font-medium text-slate-700"
-                    >
-                      Phone Number (Optional)
-                    </label>
-                    <input
-                      id="auth-phone"
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+234 800 000 0000"
-                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                    />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="auth-currency"
+                        className="block text-sm font-medium text-slate-700"
+                      >
+                        Preferred Currency
+                      </label>
+                      <select
+                        id="auth-currency"
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value)}
+                        className="mt-1.5 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                      >
+                        {SUPPORTED_CURRENCIES.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="auth-phone"
+                        className="block text-sm font-medium text-slate-700"
+                      >
+                        Phone Number (Optional)
+                      </label>
+                      <input
+                        id="auth-phone"
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="+1 555 000 0000"
+                        className="mt-1.5 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                      />
+                    </div>
                   </div>
                 </>
               )}
@@ -278,6 +309,23 @@ export function AuthScreen({
                   />
                 </div>
               </div>
+
+              {mode === 'register' && (
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={(e) => setAcceptedTerms(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                  />
+                  <span>
+                    I understand SmartGrowth AI calculates deterministic educational financial
+                    indicators only and does not issue loan approvals, provider quotes, or Shariah
+                    certifications. I consent to storing my submitted assessment records privately in
+                    my account.
+                  </span>
+                </label>
+              )}
 
               <button
                 type="submit"

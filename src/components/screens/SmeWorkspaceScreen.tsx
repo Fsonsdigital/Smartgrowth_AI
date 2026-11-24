@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Building2, Plus, UserPlus } from 'lucide-react';
-import type {
-  AssessmentResultRecord,
-  BusinessMembership,
-  PublicUser,
-  ScreenId,
-  SmeProfile,
+import {
+  SUPPORTED_CURRENCIES,
+  type AssessmentResultRecord,
+  type BusinessMembership,
+  type PublicUser,
+  type ScreenId,
+  type SmeProfile,
 } from '../../shared/types';
 import { api } from '../../lib/api';
 import { SyntheticBanner } from '../BrandMark';
@@ -37,6 +38,7 @@ export function SmeWorkspaceScreen({
     activeSme?.registrationStatus ?? 'in_progress'
   );
   const [staffCount, setStaffCount] = useState(String(activeSme?.staffCount ?? 1));
+  const [currency, setCurrency] = useState(activeSme?.currency ?? 'USD');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'finance_manager' | 'analyst'>('finance_manager');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -49,6 +51,7 @@ export function SmeWorkspaceScreen({
       setSector(activeSme.sector);
       setRegStatus(activeSme.registrationStatus);
       setStaffCount(String(activeSme.staffCount));
+      setCurrency(activeSme.currency);
     }
   }, [activeSme]);
 
@@ -64,6 +67,7 @@ export function SmeWorkspaceScreen({
           sector,
           registrationStatus: regStatus,
           staffCount: Number(staffCount) || 1,
+          currency,
         });
         setStatusMessage('SME business profile updated.');
       } else {
@@ -72,7 +76,7 @@ export function SmeWorkspaceScreen({
           sector,
           registrationStatus: regStatus,
           staffCount: Number(staffCount) || 1,
-          currency: 'NGN',
+          currency,
         });
         setStatusMessage('SME business profile created.');
       }
@@ -318,6 +322,24 @@ export function SmeWorkspaceScreen({
                   className="mt-1.5 min-h-[44px] w-full rounded-xl border border-slate-300 px-3.5 font-mono text-sm tabular-nums"
                 />
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="sme-currency" className="block text-sm font-medium text-slate-700">
+                Reporting Currency
+              </label>
+              <select
+                id="sme-currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="mt-1.5 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <button

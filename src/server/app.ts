@@ -85,7 +85,17 @@ export function createApiApp(db: Database.Database): Express {
   // Registration (public: only individual or sme roles allowed; admin cannot be self-registered)
   app.post('/api/auth/register', (req, res) => {
     try {
-      const { email, phone, fullName, password, role, businessName, sector } = req.body ?? {};
+      const {
+        email,
+        phone,
+        fullName,
+        password,
+        role,
+        businessName,
+        sector,
+        currency,
+        acceptedTerms,
+      } = req.body ?? {};
       if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
         res.status(400).json({ error: 'Please provide a valid email address.' });
         return;
@@ -98,6 +108,17 @@ export function createApiApp(db: Database.Database): Express {
         res.status(400).json({ error: 'Password must be at least 8 characters.' });
         return;
       }
+      if (acceptedTerms !== true) {
+        res.status(400).json({
+          error: 'You must accept the Data Privacy and Educational Use terms to create an account.',
+        });
+        return;
+      }
+      const safeCurrency =
+        typeof currency === 'string' && /^[A-Z]{3}$/.test(currency.trim().toUpperCase())
+          ? currency.trim().toUpperCase()
+          : 'USD';
+
       const assignedRole: 'individual' | 'sme' = role === 'sme' ? 'sme' : 'individual';
       if (userRepo.findByEmail(email)) {
         res.status(409).json({ error: 'An account with this email already exists.' });
@@ -121,7 +142,7 @@ export function createApiApp(db: Database.Database): Express {
         userId: user.id,
         occupation: '',
         city: '',
-        currency: 'NGN',
+        currency: safeCurrency,
         monthlyIncomeGoal: 0,
         emergencyFundTargetMonths: 3,
       });
@@ -137,7 +158,7 @@ export function createApiApp(db: Database.Database): Express {
           sector: typeof sector === 'string' && sector.trim() ? sector.trim() : 'General Commerce',
           registrationStatus: 'in_progress',
           staffCount: 1,
-          currency: 'NGN',
+          currency: safeCurrency,
         });
         profileRepo.addBusinessMembership({
           id: `bm_${crypto.randomUUID()}`,
@@ -155,7 +176,7 @@ export function createApiApp(db: Database.Database): Express {
         action: 'USER_REGISTERED',
         resourceType: 'user',
         resourceId: user.id,
-        details: { role: assignedRole },
+        details: { role: assignedRole, currency: safeCurrency, acceptedTerms: true },
       });
 
       const token = signSessionToken(user);
@@ -254,7 +275,10 @@ export function createApiApp(db: Database.Database): Express {
       userId,
       occupation: typeof occupation === 'string' ? occupation.trim().slice(0, 80) : current?.occupation ?? '',
       city: typeof city === 'string' ? city.trim().slice(0, 80) : current?.city ?? '',
-      currency: typeof currency === 'string' && currency.trim() ? currency.trim().slice(0, 6) : 'NGN',
+      currency:
+        typeof currency === 'string' && currency.trim()
+          ? currency.trim().toUpperCase().slice(0, 6)
+          : current?.currency ?? 'USD',
       monthlyIncomeGoal: Math.max(0, Number(monthlyIncomeGoal ?? current?.monthlyIncomeGoal ?? 0) || 0),
       emergencyFundTargetMonths: Math.max(
         1,

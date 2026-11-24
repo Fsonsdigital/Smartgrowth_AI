@@ -1,18 +1,22 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowUpRight,
   BookOpen,
   ClipboardCheck,
   FileText,
+  Settings,
   Sparkles,
 } from 'lucide-react';
-import type {
-  AssessmentResultRecord,
-  PublicUser,
-  ScreenId,
-  SmeProfile,
-  WorkspaceMode,
+import {
+  SUPPORTED_CURRENCIES,
+  type AssessmentResultRecord,
+  type IndividualProfile,
+  type PublicUser,
+  type ScreenId,
+  type SmeProfile,
+  type WorkspaceMode,
 } from '../../shared/types';
+import { api } from '../../lib/api';
 import { BandIndicator, SyntheticBanner } from '../BrandMark';
 import { FormulaFactorBars, RatioRingGauge } from '../Charts';
 
@@ -20,8 +24,10 @@ interface DashboardScreenProps {
   user: PublicUser;
   mode: WorkspaceMode;
   assessments: AssessmentResultRecord[];
+  individualProfile: IndividualProfile | null;
   smes: SmeProfile[];
   loading: boolean;
+  onIndividualProfileUpdated: (profile: IndividualProfile) => void;
   onModeChange: (mode: WorkspaceMode) => void;
   onNavigate: (screen: ScreenId) => void;
 }
@@ -30,8 +36,10 @@ export function DashboardScreen({
   user,
   mode,
   assessments,
+  individualProfile,
   smes,
   loading,
+  onIndividualProfileUpdated,
   onModeChange,
   onNavigate,
 }: DashboardScreenProps) {
@@ -40,6 +48,44 @@ export function DashboardScreen({
 
   const primaryGaugeFormula = latest?.output.formulas[0] ?? null;
   const secondaryGaugeFormula = latest?.output.formulas[2] ?? latest?.output.formulas[1] ?? null;
+
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [currency, setCurrency] = useState(individualProfile?.currency ?? 'USD');
+  const [occupation, setOccupation] = useState(individualProfile?.occupation ?? '');
+  const [city, setCity] = useState(individualProfile?.city ?? '');
+  const [incomeGoal, setIncomeGoal] = useState(
+    String(individualProfile?.monthlyIncomeGoal ?? 0)
+  );
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (individualProfile) {
+      setCurrency(individualProfile.currency);
+      setOccupation(individualProfile.occupation);
+      setCity(individualProfile.city);
+      setIncomeGoal(String(individualProfile.monthlyIncomeGoal));
+    }
+  }, [individualProfile]);
+
+  async function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingProfile(true);
+    setProfileNotice(null);
+    try {
+      const res = await api.updateIndividualProfile({
+        currency,
+        occupation,
+        city,
+        monthlyIncomeGoal: Number(incomeGoal) || 0,
+      });
+      onIndividualProfileUpdated(res.profile);
+      setProfileNotice(`Profile saved (${res.profile.currency}).`);
+      setEditingProfile(false);
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -51,6 +97,12 @@ export function DashboardScreen({
             {mode === 'sme' ? 'SME Workspace' : 'Individual Workspace'}
             <span aria-hidden="true"> · </span>
             <span>{user.fullName}</span>
+            <span aria-hidden="true"> · </span>
+            <span className="font-mono">
+              {mode === 'sme'
+                ? smes[0]?.currency ?? 'USD'
+                : individualProfile?.currency ?? 'USD'}
+            </span>
           </p>
           <h1 className="mt-0.5 font-display text-2xl font-bold text-slate-900">
             {mode === 'sme'
@@ -59,31 +111,125 @@ export function DashboardScreen({
           </h1>
         </div>
 
-        <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
-          <button
-            type="button"
-            onClick={() => onModeChange('individual')}
-            className={`min-h-[40px] rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-              mode === 'individual'
-                ? 'bg-[#043927] text-white'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Individual Mode
-          </button>
-          <button
-            type="button"
-            onClick={() => onModeChange('sme')}
-            className={`min-h-[40px] rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-              mode === 'sme'
-                ? 'bg-[#043927] text-white'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            SME / Business Mode
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {mode === 'individual' && (
+            <button
+              type="button"
+              onClick={() => setEditingProfile((v) => !v)}
+              className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Currency &amp; Profile</span>
+            </button>
+          )}
+          <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => onModeChange('individual')}
+              className={`min-h-[40px] rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                mode === 'individual'
+                  ? 'bg-[#043927] text-white'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Individual Mode
+            </button>
+            <button
+              type="button"
+              onClick={() => onModeChange('sme')}
+              className={`min-h-[40px] rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                mode === 'sme'
+                  ? 'bg-[#043927] text-white'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              SME / Business Mode
+            </button>
+          </div>
         </div>
       </div>
+
+      {profileNotice && (
+        <div
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-900"
+        >
+          {profileNotice}
+        </div>
+      )}
+
+      {editingProfile && mode === 'individual' && (
+        <form
+          onSubmit={handleSaveProfile}
+          className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-4"
+        >
+          <div>
+            <label htmlFor="dash-currency" className="block text-xs font-medium text-slate-700">
+              Currency
+            </label>
+            <select
+              id="dash-currency"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className="mt-1 min-h-[40px] w-full rounded-xl border border-slate-300 bg-white px-3 text-xs"
+            >
+              {SUPPORTED_CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="dash-occupation" className="block text-xs font-medium text-slate-700">
+              Occupation
+            </label>
+            <input
+              id="dash-occupation"
+              type="text"
+              value={occupation}
+              onChange={(e) => setOccupation(e.target.value)}
+              placeholder="e.g., Operations Lead"
+              className="mt-1 min-h-[40px] w-full rounded-xl border border-slate-300 px-3 text-xs"
+            />
+          </div>
+          <div>
+            <label htmlFor="dash-city" className="block text-xs font-medium text-slate-700">
+              City / Country
+            </label>
+            <input
+              id="dash-city"
+              type="text"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="e.g., London / Nairobi"
+              className="mt-1 min-h-[40px] w-full rounded-xl border border-slate-300 px-3 text-xs"
+            />
+          </div>
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <label htmlFor="dash-goal" className="block text-xs font-medium text-slate-700">
+                Monthly Goal ({currency})
+              </label>
+              <input
+                id="dash-goal"
+                type="number"
+                min={0}
+                value={incomeGoal}
+                onChange={(e) => setIncomeGoal(e.target.value)}
+                className="mt-1 min-h-[40px] w-full rounded-xl border border-slate-300 px-3 font-mono text-xs"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={savingProfile}
+              className="min-h-[40px] rounded-xl bg-[#043927] px-4 text-xs font-semibold text-white hover:bg-emerald-900"
+            >
+              {savingProfile ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </form>
+      )}
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2">

@@ -15,6 +15,7 @@ import { FormulaFactorBars } from '../Charts';
 interface AssessmentScreenProps {
   user: PublicUser;
   mode: WorkspaceMode;
+  individualCurrency: string;
   smes: SmeProfile[];
   onModeChange: (mode: WorkspaceMode) => void;
   onAssessmentSaved: (result: AssessmentResultRecord) => void;
@@ -42,9 +43,17 @@ const DEFAULT_SME_ANSWERS: Record<string, string> = {
   accountsPayable: '260000',
 };
 
+function getInitialAnswers(isDemo: boolean, mode: WorkspaceMode): Record<string, string> {
+  if (isDemo) {
+    return mode === 'sme' ? DEFAULT_SME_ANSWERS : DEFAULT_INDIVIDUAL_ANSWERS;
+  }
+  return mode === 'sme' ? { recordKeepingMethod: 'digital' } : { incomeStability: 'steady' };
+}
+
 export function AssessmentScreen({
   user,
   mode,
+  individualCurrency,
   smes,
   onModeChange,
   onAssessmentSaved,
@@ -52,8 +61,8 @@ export function AssessmentScreen({
 }: AssessmentScreenProps) {
   const [template, setTemplate] = useState<AssessmentTemplate | null>(null);
   const [step, setStep] = useState(1);
-  const [answers, setAnswers] = useState<Record<string, string>>(
-    mode === 'sme' ? DEFAULT_SME_ANSWERS : DEFAULT_INDIVIDUAL_ANSWERS
+  const [answers, setAnswers] = useState<Record<string, string>>(() =>
+    getInitialAnswers(user.isSyntheticDemo, mode)
   );
   const [selectedSmeId, setSelectedSmeId] = useState<string>(smes[0]?.id ?? '');
   const [loading, setLoading] = useState(true);
@@ -61,13 +70,18 @@ export function AssessmentScreen({
   const [error, setError] = useState<string | null>(null);
   const [calculatedResult, setCalculatedResult] = useState<AssessmentResultRecord | null>(null);
 
+  const activeCurrency =
+    mode === 'sme'
+      ? smes.find((s) => s.id === selectedSmeId)?.currency ?? smes[0]?.currency ?? individualCurrency
+      : individualCurrency;
+
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
     setCalculatedResult(null);
     setStep(1);
-    setAnswers(mode === 'sme' ? DEFAULT_SME_ANSWERS : DEFAULT_INDIVIDUAL_ANSWERS);
+    setAnswers(getInitialAnswers(user.isSyntheticDemo, mode));
     api
       .getAssessmentTemplate(mode)
       .then((res) => {
@@ -82,7 +96,7 @@ export function AssessmentScreen({
     return () => {
       active = false;
     };
-  }, [mode]);
+  }, [mode, user.isSyntheticDemo]);
 
   const maxStep = template
     ? Math.max(...template.questions.map((q) => q.stepNumber))
@@ -248,7 +262,7 @@ export function AssessmentScreen({
                   ) : (
                     <div className="relative mt-2">
                       <span className="pointer-events-none absolute left-3.5 top-3 font-mono text-xs text-slate-500">
-                        {q.unit}
+                        {q.inputType === 'currency' ? activeCurrency : q.unit}
                       </span>
                       <input
                         id={`q_${q.fieldKey}`}
@@ -256,9 +270,10 @@ export function AssessmentScreen({
                         type="number"
                         min={q.minValue}
                         step="any"
+                        placeholder={user.isSyntheticDemo ? undefined : '0'}
                         value={answers[q.fieldKey] ?? ''}
                         onChange={(e) => handleFieldChange(q.fieldKey, e.target.value)}
-                        className="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pl-14 pr-3.5 font-mono text-sm tabular-nums text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                        className="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pl-16 pr-3.5 font-mono text-sm tabular-nums text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
                       />
                     </div>
                   )}

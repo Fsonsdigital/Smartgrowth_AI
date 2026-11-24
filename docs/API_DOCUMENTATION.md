@@ -11,7 +11,7 @@ Authentication: Bearer token in `Authorization: Bearer <token>` header (HMAC-SHA
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/health` | Public | Returns service status, demo mode flag, and whether `GEMINI_API_KEY` is configured. |
 | `GET` | `/api/auth/demo-accounts` | Public | Lists flagged synthetic demonstration accounts when `ENABLE_DEMO_ACCOUNTS=true` or non-production. |
-| `POST` | `/api/auth/register` | Public | Registers a new `individual` or `sme` user (`admin` self-registration is blocked). Returns `{ token, user }`. |
+| `POST` | `/api/auth/register` | Public | Registers a new `individual` or `sme` user (`admin` self-registration is blocked). Requires `acceptedTerms: true` and supports 3-letter `currency` (defaults to `"USD"`). Returns `{ token, user }`. |
 | `POST` | `/api/auth/login` | Public | Verifies email + scrypt password hash. Returns `{ token, user }`. |
 | `POST` | `/api/auth/demo-login` | Public | Issues token strictly for seeded `isSyntheticDemo = true` accounts when enabled. |
 | `GET` | `/api/auth/me` | Bearer | Returns the authenticated user profile. |

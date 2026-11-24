@@ -16,6 +16,7 @@ import {
 import type {
   AssessmentResultRecord,
   BusinessMembership,
+  IndividualProfile,
   LearningContentItem,
   PublicUser,
   RecommendationRecord,
@@ -67,6 +68,7 @@ export default function App() {
   const [recommendations, setRecommendations] = useState<RecommendationRecord[]>([]);
   const [learningItems, setLearningItems] = useState<LearningContentItem[]>([]);
   const [reports, setReports] = useState<ReportRecord[]>([]);
+  const [individualProfile, setIndividualProfile] = useState<IndividualProfile | null>(null);
   const [smes, setSmes] = useState<SmeProfile[]>([]);
   const [memberships, setMemberships] = useState<BusinessMembership[]>([]);
   const [loadingData, setLoadingData] = useState(false);
@@ -96,6 +98,7 @@ export default function App() {
         api.listLearning(),
         api.listReports(),
       ]);
+      setIndividualProfile(profRes.individual);
       setSmes(profRes.smes);
       setMemberships(profRes.memberships);
       setAssessments(assessRes.results);
@@ -148,6 +151,7 @@ export default function App() {
     setAssessments([]);
     setRecommendations([]);
     setReports([]);
+    setIndividualProfile(null);
     setSmes([]);
     setMemberships([]);
     setMobileMenuOpen(false);
@@ -282,8 +286,10 @@ export default function App() {
                 user={user}
                 mode={mode}
                 assessments={assessments}
+                individualProfile={individualProfile}
                 smes={smes}
                 loading={loadingData}
+                onIndividualProfileUpdated={setIndividualProfile}
                 onModeChange={handleModeChange}
                 onNavigate={navigateTo}
               />
@@ -292,6 +298,7 @@ export default function App() {
               <AssessmentScreen
                 user={user}
                 mode={mode}
+                individualCurrency={individualProfile?.currency ?? 'USD'}
                 smes={smes}
                 onModeChange={handleModeChange}
                 onAssessmentSaved={(res) => setAssessments((prev) => [res, ...prev])}
