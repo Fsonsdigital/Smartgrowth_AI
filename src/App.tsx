@@ -15,18 +15,26 @@ import {
 } from 'lucide-react';
 import type {
   AssessmentResultRecord,
-  BusinessMembership,
   IndividualProfile,
-  LearningContentItem,
   PublicUser,
   RecommendationRecord,
-  ReportRecord,
   ScreenId,
   SmeProfile,
   WorkspaceMode,
 } from './shared/types';
 import { api, setAuthToken } from './lib/api';
+import {
+  auth,
+  ensureFirestoreUserProfile,
+  onAuthStateChanged,
+  signInWithGooglePopup,
+  signOutFirebase,
+  subscribeUserWorkspace,
+  updateFirestoreUserProfile,
+} from './lib/firebase';
+import { LanguageProvider, LanguageSwitcher, useLanguage } from './lib/i18n';
 import { BrandMark } from './components/BrandMark';
+import { PilotFeedbackModal } from './components/PilotFeedbackModal';
 import { OnboardingScreen } from './components/screens/OnboardingScreen';
 import { AuthScreen } from './components/screens/AuthScreen';
 import { DashboardScreen } from './components/screens/DashboardScreen';
@@ -41,24 +49,77 @@ import { AdminDataLabScreen } from './components/screens/AdminDataLabScreen';
 
 const NAV_ITEMS: Array<{
   id: ScreenId;
-  label: string;
+  labelEn: string;
+  labelHa: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  comingSoon?: boolean;
 }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: Home },
-  { id: 'assessment', label: 'Assessment', icon: ClipboardCheck },
-  { id: 'readiness', label: 'Credit Readiness', icon: BarChart3 },
-  { id: 'recommendations', label: 'AI Coach', icon: Sparkles },
-  { id: 'sme', label: 'SME / Business', icon: Building2 },
-  { id: 'ethical', label: 'Ethical Finance', icon: Handshake },
-  { id: 'learning', label: 'Learning Centre', icon: BookOpen },
-  { id: 'reports', label: 'Reports', icon: FileText },
-  { id: 'admin', label: 'Admin & Data Lab', icon: Database, adminOnly: true },
+  { id: 'dashboard', labelEn: 'Overview', labelHa: 'Taƙaitaccen Bayani', icon: Home },
+  {
+    id: 'assessment',
+    labelEn: 'AI Financial Health',
+    labelHa: 'Lafiyar Kuɗi ta AI',
+    icon: ClipboardCheck,
+  },
+  {
+    id: 'recommendations',
+    labelEn: 'AI Growth Coach',
+    labelHa: 'Mai Ba da Shawara na AI',
+    icon: Sparkles,
+  },
+  {
+    id: 'readiness',
+    labelEn: 'Credit Readiness',
+    labelHa: 'Shirye-shiryen Bashi',
+    icon: BarChart3,
+    comingSoon: true,
+  },
+  {
+    id: 'sme',
+    labelEn: 'SME Workspace',
+    labelHa: 'Sashen Kasuwanci (SME)',
+    icon: Building2,
+    comingSoon: true,
+  },
+  {
+    id: 'ethical',
+    labelEn: 'Ethical Finance',
+    labelHa: 'Kuɗi na Gaskiya',
+    icon: Handshake,
+    comingSoon: true,
+  },
+  {
+    id: 'learning',
+    labelEn: 'Learning Centre',
+    labelHa: 'Cibiyar Koyo',
+    icon: BookOpen,
+    comingSoon: true,
+  },
+  {
+    id: 'reports',
+    labelEn: 'Reports',
+    labelHa: 'Rahotanni',
+    icon: FileText,
+    comingSoon: true,
+  },
+  {
+    id: 'admin',
+    labelEn: 'Admin & Data Lab',
+    labelHa: 'Gudanarwa & Data Lab',
+    icon: Database,
+    adminOnly: true,
+  },
 ];
 
-export default function App() {
+function AppContent() {
+  const { language, isHausa } = useLanguage();
   const [screen, setScreen] = useState<ScreenId>('onboarding');
   const [user, setUser] = useState<PublicUser | null>(null);
+  const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [mode, setMode] = useState<WorkspaceMode>('individual');
   const [demoAccounts, setDemoAccounts] = useState<PublicUser[]>([]);
   const [demoEnabled, setDemoEnabled] = useState(true);
@@ -66,11 +127,8 @@ export default function App() {
 
   const [assessments, setAssessments] = useState<AssessmentResultRecord[]>([]);
   const [recommendations, setRecommendations] = useState<RecommendationRecord[]>([]);
-  const [learningItems, setLearningItems] = useState<LearningContentItem[]>([]);
-  const [reports, setReports] = useState<ReportRecord[]>([]);
   const [individualProfile, setIndividualProfile] = useState<IndividualProfile | null>(null);
   const [smes, setSmes] = useState<SmeProfile[]>([]);
-  const [memberships, setMemberships] = useState<BusinessMembership[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -87,30 +145,100 @@ export default function App() {
       });
   }, []);
 
+  useEffect(() => {
+    let unsubFirestore: (() => void) | null = null;
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubFirestore) {
+        unsubFirestore();
+        unsubFirestore = null;
+      }
+      if (!fbUser) {
+        setFirebaseUid(null);
+        setAuthReady(true);
+        return;
+      }
+
+      try {
+        setLoadingData(true);
+        const idToken = await fbUser.getIdToken();
+        const sessionRes = await api.firebaseSession({ idToken });
+        setAuthToken(sessionRes.token);
+        setUser(sessionRes.user);
+        setFirebaseUid(fbUser.uid);
+
+        const fbProfile = await ensureFirestoreUserProfile(fbUser, language, {
+          activeMode: sessionRes.user.activeMode,
+          currency: 'USD',
+        });
+        if (fbProfile) {
+          setMode(fbProfile.activeMode);
+        } else {
+          setMode(sessionRes.user.activeMode);
+        }
+
+        setScreen((prev) =>
+          prev === 'onboarding' || prev === 'auth'
+            ? sessionRes.user.role === 'admin'
+              ? 'admin'
+              : 'dashboard'
+            : prev
+        );
+
+        unsubFirestore = subscribeUserWorkspace(fbUser.uid, {
+          onProfile: (prof, activeMode) => {
+            setIndividualProfile(prof);
+            setMode(activeMode);
+          },
+          onSmes: (list) => setSmes(list),
+          onAssessments: (list) => setAssessments(list),
+          onRecommendations: (list) => setRecommendations(list),
+        });
+      } catch (err) {
+        setGlobalError(
+          err instanceof Error
+            ? err.message
+            : isHausa
+              ? 'An kasa haɗa asusun Firebase.'
+              : 'Unable to verify Firebase session.'
+        );
+      } finally {
+        setLoadingData(false);
+        setAuthReady(true);
+      }
+    });
+
+    return () => {
+      if (unsubFirestore) unsubFirestore();
+      unsubAuth();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const loadWorkspaceData = useCallback(async () => {
     setLoadingData(true);
     setGlobalError(null);
     try {
-      const [profRes, assessRes, recRes, learnRes, repRes] = await Promise.all([
+      const [profRes, assessRes, recRes] = await Promise.all([
         api.getProfiles(),
         api.listAssessments(),
         api.listRecommendations(),
-        api.listLearning(),
-        api.listReports(),
       ]);
       setIndividualProfile(profRes.individual);
       setSmes(profRes.smes);
-      setMemberships(profRes.memberships);
       setAssessments(assessRes.results);
       setRecommendations(recRes.recommendations);
-      setLearningItems(learnRes.items);
-      setReports(repRes.reports);
     } catch (err) {
-      setGlobalError(err instanceof Error ? err.message : 'Failed to load workspace data.');
+      setGlobalError(
+        err instanceof Error
+          ? err.message
+          : isHausa
+            ? 'An kasa loda bayanan asusun.'
+            : 'Failed to load workspace data.'
+      );
     } finally {
       setLoadingData(false);
     }
-  }, []);
+  }, [isHausa]);
 
   function handleAuthenticated(token: string, loggedUser: PublicUser) {
     setAuthToken(token);
@@ -120,10 +248,32 @@ export default function App() {
     void loadWorkspaceData();
   }
 
+  async function handleGoogleSignIn() {
+    setGoogleLoading(true);
+    setGlobalError(null);
+    try {
+      await signInWithGooglePopup();
+    } catch (err) {
+      setGlobalError(
+        err instanceof Error
+          ? err.message
+          : isHausa
+            ? 'Shiga da Google ta ci tura.'
+            : 'Google Sign-In failed.'
+      );
+      throw err;
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
   async function handleStartDemo(userId: string) {
     setLoadingDemoId(userId);
     setGlobalError(null);
     try {
+      if (auth.currentUser) {
+        await signOutFirebase();
+      }
       const res = await api.demoLogin(userId);
       handleAuthenticated(res.token, res.user);
     } catch (err) {
@@ -135,6 +285,13 @@ export default function App() {
 
   async function handleModeChange(nextMode: WorkspaceMode) {
     setMode(nextMode);
+    if (firebaseUid) {
+      try {
+        await updateFirestoreUserProfile(firebaseUid, { activeMode: nextMode });
+      } catch {
+        // remain responsive locally
+      }
+    }
     if (user) {
       try {
         const res = await api.setMode(nextMode);
@@ -145,15 +302,17 @@ export default function App() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    if (auth.currentUser) {
+      await signOutFirebase();
+    }
     setAuthToken(null);
     setUser(null);
+    setFirebaseUid(null);
     setAssessments([]);
     setRecommendations([]);
-    setReports([]);
     setIndividualProfile(null);
     setSmes([]);
-    setMemberships([]);
     setMobileMenuOpen(false);
     setScreen('onboarding');
   }
@@ -163,6 +322,16 @@ export default function App() {
     setScreen(target);
   }
 
+  if (!authReady && !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F4F7F6] p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-medium text-slate-600">
+          {isHausa ? 'Ana shirya SmartGrowth AI...' : 'Loading SmartGrowth AI...'}
+        </div>
+      </div>
+    );
+  }
+
   if (!user || screen === 'onboarding' || screen === 'auth') {
     if (screen === 'auth') {
       return (
@@ -170,6 +339,8 @@ export default function App() {
           demoAccounts={demoAccounts}
           demoEnabled={demoEnabled}
           loadingDemoId={loadingDemoId}
+          googleLoading={googleLoading}
+          onGoogleSignIn={handleGoogleSignIn}
           onAuthenticated={handleAuthenticated}
           onStartDemo={handleStartDemo}
           onNavigate={navigateTo}
@@ -181,6 +352,8 @@ export default function App() {
         demoAccounts={demoAccounts}
         demoEnabled={demoEnabled}
         loadingDemoId={loadingDemoId}
+        googleLoading={googleLoading}
+        onGoogleSignIn={handleGoogleSignIn}
         onStartDemo={handleStartDemo}
         onNavigate={navigateTo}
       />
@@ -188,7 +361,14 @@ export default function App() {
   }
 
   const visibleNav = NAV_ITEMS.filter((item) => !item.adminOnly || user.role === 'admin');
-  const activeNavLabel = visibleNav.find((n) => n.id === screen)?.label ?? 'Dashboard';
+  const activeItem = visibleNav.find((n) => n.id === screen);
+  const activeNavLabel = activeItem
+    ? isHausa
+      ? activeItem.labelHa
+      : activeItem.labelEn
+    : isHausa
+      ? 'Taƙaitaccen Bayani'
+      : 'Overview';
 
   return (
     <div className="min-h-screen bg-[#F4F7F6] text-slate-900">
@@ -203,19 +383,35 @@ export default function App() {
             {visibleNav.map((item) => {
               const Icon = item.icon;
               const isActive = screen === item.id;
+              const label = isHausa ? item.labelHa : item.labelEn;
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => navigateTo(item.id)}
-                  className={`flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors ${
+                  className={`flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-[#043927] text-white'
-                      : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                      : item.comingSoon
+                        ? 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                        : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  <span className="truncate">{item.label}</span>
+                  <span className="flex items-center gap-3 min-w-0">
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="truncate">{label}</span>
+                  </span>
+                  {item.comingSoon && (
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                        isActive
+                          ? 'bg-emerald-800 text-emerald-100'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {isHausa ? 'Nan Gaba' : 'Soon'}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -234,7 +430,7 @@ export default function App() {
               className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
               <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Sign Out</span>
+              <span>{isHausa ? 'Fita' : 'Sign Out'}</span>
             </button>
           </div>
         </aside>
@@ -242,7 +438,7 @@ export default function App() {
         {/* Main Workspace Area */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Top Bar */}
-          <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-slate-200 bg-white/95 px-4 backdrop-blur-md sm:px-6">
+          <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-3 min-w-0">
               <div className="lg:hidden flex items-center shrink-0">
                 <BrandMark size={28} />
@@ -252,17 +448,18 @@ export default function App() {
               </span>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0">
+              <LanguageSwitcher compact />
               <button
                 type="button"
                 onClick={() => navigateTo('assessment')}
                 className="hidden sm:inline-flex min-h-[38px] items-center rounded-lg bg-[#043927] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-900 whitespace-nowrap shrink-0"
               >
-                New Assessment
+                {isHausa ? 'Sabon Gwaji' : 'New Health Assessment'}
               </button>
               <button
                 type="button"
-                aria-label="Open navigation menu"
+                aria-label={isHausa ? 'Buɗe jerin shafuka' : 'Open navigation menu'}
                 onClick={() => setMobileMenuOpen(true)}
                 className="lg:hidden flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-700"
               >
@@ -284,19 +481,33 @@ export default function App() {
             {screen === 'dashboard' && (
               <DashboardScreen
                 user={user}
+                firebaseUid={firebaseUid}
                 mode={mode}
                 assessments={assessments}
                 individualProfile={individualProfile}
                 smes={smes}
                 loading={loadingData}
                 onIndividualProfileUpdated={setIndividualProfile}
+                onSmeProfileSaved={(saved) =>
+                  setSmes((prev) => {
+                    const idx = prev.findIndex((s) => s.id === saved.id);
+                    if (idx >= 0) {
+                      const next = [...prev];
+                      next[idx] = saved;
+                      return next;
+                    }
+                    return [saved, ...prev];
+                  })
+                }
                 onModeChange={handleModeChange}
                 onNavigate={navigateTo}
+                onOpenFeedback={() => setFeedbackOpen(true)}
               />
             )}
             {screen === 'assessment' && (
               <AssessmentScreen
                 user={user}
+                firebaseUid={firebaseUid}
                 mode={mode}
                 individualCurrency={individualProfile?.currency ?? 'USD'}
                 smes={smes}
@@ -306,16 +517,17 @@ export default function App() {
               />
             )}
             {screen === 'readiness' && (
-              <ReadinessScreen
-                user={user}
-                mode={mode}
-                assessments={assessments}
-                onNavigate={navigateTo}
-              />
+              <ReadinessScreen user={user} onNavigate={navigateTo} />
             )}
             {screen === 'recommendations' && (
               <RecommendationsScreen
                 user={user}
+                firebaseUid={firebaseUid}
+                activeCurrency={
+                  mode === 'sme'
+                    ? smes[0]?.currency ?? individualProfile?.currency ?? 'USD'
+                    : individualProfile?.currency ?? 'USD'
+                }
                 mode={mode}
                 assessments={assessments}
                 recommendations={recommendations}
@@ -327,54 +539,39 @@ export default function App() {
               />
             )}
             {screen === 'sme' && (
-              <SmeWorkspaceScreen
-                user={user}
-                smes={smes}
-                memberships={memberships}
-                assessments={assessments}
-                onProfilesUpdated={loadWorkspaceData}
-                onNavigate={navigateTo}
-              />
+              <SmeWorkspaceScreen user={user} onNavigate={navigateTo} />
             )}
             {screen === 'ethical' && (
-              <EthicalFinanceScreen user={user} mode={mode} onNavigate={navigateTo} />
+              <EthicalFinanceScreen user={user} onNavigate={navigateTo} />
             )}
             {screen === 'learning' && (
-              <LearningCentreScreen
-                user={user}
-                items={learningItems}
-                onUpdated={(updated) =>
-                  setLearningItems((prev) =>
-                    prev.map((it) => (it.id === updated.id ? updated : it))
-                  )
-                }
-              />
+              <LearningCentreScreen user={user} onNavigate={navigateTo} />
             )}
             {screen === 'reports' && (
-              <ReportsScreen
-                user={user}
-                mode={mode}
-                assessments={assessments}
-                reports={reports}
-                onReportCreated={(rep) => setReports((prev) => [rep, ...prev])}
-              />
+              <ReportsScreen user={user} onNavigate={navigateTo} />
             )}
             {screen === 'admin' && <AdminDataLabScreen user={user} />}
           </main>
         </div>
       </div>
 
+      <PilotFeedbackModal
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+        firebaseUid={firebaseUid}
+        activeMode={mode}
+      />
+
       {/* Mobile Bottom Navigation Bar (Compact <= 64px) */}
       <nav
         aria-label="Mobile Bottom Navigation"
-        className="no-print fixed bottom-0 left-0 right-0 z-40 grid h-16 grid-cols-5 border-t border-slate-200 bg-white/95 backdrop-blur-md lg:hidden"
+        className="no-print fixed bottom-0 left-0 right-0 z-40 grid h-16 grid-cols-4 border-t border-slate-200 bg-white/95 backdrop-blur-md lg:hidden"
       >
         {(
           [
-            ['dashboard', 'Home', Home],
-            ['assessment', 'Assess', ClipboardCheck],
-            ['recommendations', 'AI', Sparkles],
-            ['learning', 'Learn', BookOpen],
+            ['dashboard', isHausa ? 'Babba' : 'Overview', Home],
+            ['assessment', isHausa ? 'Gwaji' : 'Health Score', ClipboardCheck],
+            ['recommendations', isHausa ? 'Shawarar AI' : 'Growth Coach', Sparkles],
           ] as const
         ).map(([id, label, Icon]) => {
           const active = screen === id;
@@ -388,7 +585,7 @@ export default function App() {
               }`}
             >
               <Icon className="h-5 w-5" aria-hidden="true" />
-              <span>{label}</span>
+              <span className="truncate max-w-full px-1">{label}</span>
             </button>
           );
         })}
@@ -398,11 +595,11 @@ export default function App() {
           className="flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-slate-600"
         >
           <Menu className="h-5 w-5" aria-hidden="true" />
-          <span>More</span>
+          <span>{isHausa ? 'Sauran' : 'Roadmap'}</span>
         </button>
       </nav>
 
-      {/* Mobile Drawer for All 10+ Screens */}
+      {/* Mobile Drawer for Active & Coming Soon Platform Screens */}
       {mobileMenuOpen && (
         <div
           role="dialog"
@@ -417,7 +614,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                aria-label="Close menu"
+                aria-label={isHausa ? 'Rufe menu' : 'Close menu'}
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100"
               >
@@ -425,21 +622,44 @@ export default function App() {
               </button>
             </div>
 
+            <div className="mt-3 flex items-center justify-between border-b border-slate-100 pb-3">
+              <span className="text-xs font-medium text-slate-600">
+                {isHausa ? 'Harshe / Language' : 'Language / Harshe'}
+              </span>
+              <LanguageSwitcher compact />
+            </div>
+
             <div className="mt-4 flex-1 space-y-1 overflow-y-auto">
               {visibleNav.map((item) => {
                 const Icon = item.icon;
                 const active = screen === item.id;
+                const label = isHausa ? item.labelHa : item.labelEn;
                 return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => navigateTo(item.id)}
-                    className={`flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3.5 text-sm font-medium ${
-                      active ? 'bg-[#043927] text-white' : 'text-slate-700 hover:bg-slate-100'
+                    className={`flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3.5 text-sm font-medium ${
+                      active
+                        ? 'bg-[#043927] text-white'
+                        : item.comingSoon
+                          ? 'text-slate-500 hover:bg-slate-50'
+                          : 'text-slate-700 hover:bg-slate-100'
                     }`}
                   >
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                    <span>{item.label}</span>
+                    <span className="flex items-center gap-3">
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                      <span>{label}</span>
+                    </span>
+                    {item.comingSoon && (
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                          active ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {isHausa ? 'Nan Gaba' : 'Soon'}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -456,12 +676,20 @@ export default function App() {
                 className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800"
               >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
-                <span>Sign Out</span>
+                <span>{isHausa ? 'Fita' : 'Sign Out'}</span>
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   );
 }

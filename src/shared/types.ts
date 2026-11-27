@@ -1,3 +1,4 @@
+export type AppLanguage = 'en' | 'ha';
 export type UserRole = 'individual' | 'sme' | 'admin';
 export type WorkspaceMode = 'individual' | 'sme';
 export type MetricBand = 'Strong' | 'Stable' | 'Watch' | 'Critical' | 'Insufficient Data';

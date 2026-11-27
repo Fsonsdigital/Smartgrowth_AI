@@ -1,0 +1,405 @@
+{
+  "entities": {
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Explicit administrator privilege marker document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the administrator."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160,
+          "description": "Verified administrator email address."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin marker was created."
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user workspace preferences and financial goals stored strictly per authenticated owner.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "activeMode": {
+          "type": "string",
+          "enum": ["individual", "sme"],
+          "maxLength": 20
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "maxLength": 6
+        },
+        "occupation": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "city": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "monthlyIncomeGoal": {
+          "type": "number"
+        },
+        "emergencyFundTargetMonths": {
+          "type": "number"
+        },
+        "preferredLanguage": {
+          "type": "string",
+          "enum": ["en", "ha"],
+          "maxLength": 5
+        },
+        "acceptedTerms": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "fullName",
+        "activeMode",
+        "currency",
+        "preferredLanguage",
+        "acceptedTerms",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SmeEntity": {
+      "title": "SmeEntity",
+      "description": "SME business profile owned by a user for business financial health tracking.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "businessName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "sector": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "registrationStatus": {
+          "type": "string",
+          "enum": ["registered", "informal", "in_progress"],
+          "maxLength": 24
+        },
+        "staffCount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "maxLength": 6
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "businessName",
+        "sector",
+        "registrationStatus",
+        "staffCount",
+        "currency",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AssessmentRecord": {
+      "title": "AssessmentRecord",
+      "description": "Deterministic Individual or SME financial health assessment snapshot.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "audience": {
+          "type": "string",
+          "enum": ["individual", "sme"],
+          "maxLength": 20
+        },
+        "smeProfileId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "calculationVersion": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "readinessTier": {
+          "type": "string",
+          "enum": ["Resilient", "Developing", "Vulnerable", "Needs Data"],
+          "maxLength": 32
+        },
+        "summaryStatement": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "maxLength": 6
+        },
+        "answers": {
+          "type": "object"
+        },
+        "metrics": {
+          "type": "object"
+        },
+        "formulas": {
+          "type": "array"
+        },
+        "dataQualityFlags": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "audience",
+        "calculationVersion",
+        "readinessTier",
+        "summaryStatement",
+        "currency",
+        "answers",
+        "metrics",
+        "formulas",
+        "dataQualityFlags",
+        "createdAt"
+      ]
+    },
+    "CoachRecommendation": {
+      "title": "CoachRecommendation",
+      "description": "Grounded AI Business Growth Coach educational guidance tied to an assessment.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "assessmentResultId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "audience": {
+          "type": "string",
+          "enum": ["individual", "sme"],
+          "maxLength": 20
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "ha"],
+          "maxLength": 5
+        },
+        "promptVersion": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "modelName": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "question": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "safetyPassed": {
+          "type": "boolean"
+        },
+        "fallbackUsed": {
+          "type": "boolean"
+        },
+        "fallbackReason": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "structuredOutput": {
+          "type": "object"
+        },
+        "sources": {
+          "type": "array"
+        },
+        "safetyFlags": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "assessmentResultId",
+        "audience",
+        "language",
+        "promptVersion",
+        "modelName",
+        "safetyPassed",
+        "fallbackUsed",
+        "structuredOutput",
+        "sources",
+        "safetyFlags",
+        "createdAt"
+      ]
+    },
+    "PilotFeedback": {
+      "title": "PilotFeedback",
+      "description": "Real-user prototype validation feedback used to measure usefulness and product-market fit.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "userRole": {
+          "type": "string",
+          "enum": ["individual", "sme"],
+          "maxLength": 20
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "ha"],
+          "maxLength": 5
+        },
+        "usefulnessRating": {
+          "type": "number"
+        },
+        "recommendLikelihood": {
+          "type": "number"
+        },
+        "mostValuableFeature": {
+          "type": "string",
+          "enum": ["health_assessment", "ai_growth_coach", "both"],
+          "maxLength": 32
+        },
+        "primaryUseCase": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "comment": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "userRole",
+        "language",
+        "usefulnessRating",
+        "recommendLikelihood",
+        "mostValuableFeature",
+        "primaryUseCase",
+        "comment",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Admin role marker documents checked for elevated administrative operations."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private authenticated user workspace profile, currency, language, and financial goals."
+    },
+    "/users/{userId}/smes/{smeId}": {
+      "schema": { "$ref": "#/entities/SmeEntity" },
+      "description": "SME business profiles owned by the parent user."
+    },
+    "/users/{userId}/assessments/{assessmentId}": {
+      "schema": { "$ref": "#/entities/AssessmentRecord" },
+      "description": "Deterministic Financial Health Assessment records owned by the parent user."
+    },
+    "/users/{userId}/recommendations/{recommendationId}": {
+      "schema": { "$ref": "#/entities/CoachRecommendation" },
+      "description": "Grounded AI Business Growth Coach outputs owned by the parent user."
+    },
+    "/pilotFeedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/PilotFeedback" },
+      "description": "Prototype validation feedback submitted by authenticated pilot users."
+    }
+  }
+}

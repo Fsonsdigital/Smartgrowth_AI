@@ -20,6 +20,7 @@ import type {
   PublicUser,
 } from '../../shared/types';
 import { api } from '../../lib/api';
+import { auth, listPilotFeedbackForAdmin, type PilotFeedbackItem } from '../../lib/firebase';
 import { SyntheticBanner } from '../BrandMark';
 
 interface AdminDataLabScreenProps {
@@ -68,6 +69,7 @@ export function AdminDataLabScreen({ user }: AdminDataLabScreenProps) {
     approvedKnowledgeRecords: number;
   } | null>(null);
   const [users, setUsers] = useState<PublicUser[]>([]);
+  const [pilotFeedback, setPilotFeedback] = useState<PilotFeedbackItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [batches, setBatches] = useState<DatasetBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<DatasetBatch | null>(null);
@@ -101,6 +103,14 @@ export function AdminDataLabScreen({ user }: AdminDataLabScreenProps) {
       setCounts(ov.counts);
       setUsers(ov.users);
       setAuditLogs(ov.auditLogs);
+      if (auth.currentUser) {
+        try {
+          const fb = await listPilotFeedbackForAdmin();
+          setPilotFeedback(fb);
+        } catch {
+          setPilotFeedback([]);
+        }
+      }
       setBatches(ds.batches);
       setEvaluations(ev.evaluations);
       if (ds.batches.length > 0) {
@@ -325,37 +335,98 @@ export function AdminDataLabScreen({ user }: AdminDataLabScreenProps) {
       {loading ? (
         <div className="h-64 animate-pulse rounded-2xl border border-slate-200 bg-white" />
       ) : adminTab === 'overview' ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="font-display text-lg font-bold text-slate-900">
-            Registered Accounts ({users.length})
-          </h2>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[540px] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs text-slate-500">
-                  <th className="py-2 pr-4">Name</th>
-                  <th className="py-2 pr-4">Email</th>
-                  <th className="py-2 pr-4">Role</th>
-                  <th className="py-2 pr-4">Mode</th>
-                  <th className="py-2 text-right">Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-slate-100 last:border-b-0">
-                    <td className="py-2.5 pr-4 font-medium text-slate-900">{u.fullName}</td>
-                    <td className="py-2.5 pr-4 font-mono text-xs text-slate-600">{u.email}</td>
-                    <td className="py-2.5 pr-4 uppercase text-xs font-semibold text-emerald-700">
-                      {u.role}
-                    </td>
-                    <td className="py-2.5 pr-4 text-xs text-slate-600">{u.activeMode}</td>
-                    <td className="py-2.5 text-right text-xs text-slate-500">
-                      {u.isSyntheticDemo ? 'Synthetic Demo' : 'Standard'}
-                    </td>
-                  </tr>
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-display text-lg font-bold text-slate-900">
+                  Pilot Validation Feedback ({pilotFeedback.length})
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Real-user validation metrics stored in Firestore for investor and stakeholder review.
+                </p>
+              </div>
+              {pilotFeedback.length > 0 && (
+                <div className="flex items-center gap-3 text-xs font-mono">
+                  <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-emerald-800">
+                    Avg Useful:{' '}
+                    {(
+                      pilotFeedback.reduce((acc, item) => acc + item.usefulnessRating, 0) /
+                      pilotFeedback.length
+                    ).toFixed(1)}
+                    /5
+                  </span>
+                  <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-slate-800">
+                    Avg Recommend:{' '}
+                    {(
+                      pilotFeedback.reduce((acc, item) => acc + item.recommendLikelihood, 0) /
+                      pilotFeedback.length
+                    ).toFixed(1)}
+                    /5
+                  </span>
+                </div>
+              )}
+            </div>
+            {pilotFeedback.length === 0 ? (
+              <p className="mt-4 text-sm text-slate-500">
+                {auth.currentUser
+                  ? 'No pilot validation feedback submitted yet.'
+                  : 'Sign in with your Google Admin account to view live Firestore pilot validation responses.'}
+              </p>
+            ) : (
+              <div className="mt-4 space-y-2.5">
+                {pilotFeedback.map((fb) => (
+                  <div
+                    key={fb.id}
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold uppercase text-emerald-800">
+                        {fb.userRole} · {fb.language.toUpperCase()} · {fb.primaryUseCase}
+                      </span>
+                      <span className="font-mono text-slate-600">
+                        Useful {fb.usefulnessRating}/5 · Recommend {fb.recommendLikelihood}/5
+                      </span>
+                    </div>
+                    {fb.comment && <p className="mt-1.5 text-sm text-slate-800">{fb.comment}</p>}
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6">
+            <h2 className="font-display text-lg font-bold text-slate-900">
+              Registered Accounts ({users.length})
+            </h2>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[540px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-2 pr-4">Name</th>
+                    <th className="py-2 pr-4">Email</th>
+                    <th className="py-2 pr-4">Role</th>
+                    <th className="py-2 pr-4">Mode</th>
+                    <th className="py-2 text-right">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id} className="border-b border-slate-100 last:border-b-0">
+                      <td className="py-2.5 pr-4 font-medium text-slate-900">{u.fullName}</td>
+                      <td className="py-2.5 pr-4 font-mono text-xs text-slate-600">{u.email}</td>
+                      <td className="py-2.5 pr-4 uppercase text-xs font-semibold text-emerald-700">
+                        {u.role}
+                      </td>
+                      <td className="py-2.5 pr-4 text-xs text-slate-600">{u.activeMode}</td>
+                      <td className="py-2.5 text-right text-xs text-slate-500">
+                        {u.isSyntheticDemo ? 'Synthetic Demo' : 'Standard'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       ) : adminTab === 'audit' ? (

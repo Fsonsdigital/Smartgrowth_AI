@@ -1,5 +1,6 @@
 import React from 'react';
 import type { FormulaExplanation } from '../shared/types';
+import { translateFormulaLabel, useLanguage } from '../lib/i18n';
 import { BandIndicator } from './BrandMark';
 
 export function RatioRingGauge({
@@ -71,9 +72,11 @@ export function RatioRingGauge({
 }
 
 export function FormulaFactorBars({ formulas }: { formulas: FormulaExplanation[] }) {
+  const { language } = useLanguage();
   return (
     <div className="space-y-4">
       {formulas.map((f) => {
+        const localizedLabel = translateFormulaLabel(f.key, f.label, language);
         const barWidth =
           f.unit === '%' && f.value !== null
             ? Math.max(4, Math.min(100, f.value))
@@ -101,7 +104,7 @@ export function FormulaFactorBars({ formulas }: { formulas: FormulaExplanation[]
         return (
           <div key={f.key} className="space-y-1.5 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-sm font-medium text-slate-900">{f.label}</span>
+              <span className="text-sm font-medium text-slate-900">{localizedLabel}</span>
               <div className="flex items-center gap-3">
                 <BandIndicator band={f.band} />
                 <span className="font-mono text-sm font-semibold tabular-nums text-slate-900">

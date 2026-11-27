@@ -24,6 +24,7 @@ import { calculateSmeAssessment } from './services/assessment/smeEngine.js';
 import { KnowledgeRetrievalService } from './services/ai/knowledgeService.js';
 import { RecommendationService } from './services/ai/recommendationService.js';
 import { DatasetService } from './services/datalab/datasetService.js';
+import { verifyFirebaseIdToken } from './services/firebaseTokenVerifier.js';
 import type {
   DatasetFormat,
   DatasetSplit,
@@ -35,12 +36,37 @@ function isDemoLoginEnabled(): boolean {
   return process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEMO_ACCOUNTS === 'true';
 }
 
+function getAllowedCorsOrigins(): string[] {
+  const raw = process.env.CORS_ORIGIN ?? '';
+  const fromEnv = raw
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter((o) => o.length > 0 && o !== '*');
+  const appUrl = process.env.APP_URL?.trim().replace(/\/+$/, '');
+  if (appUrl && !fromEnv.includes(appUrl)) {
+    fromEnv.push(appUrl);
+  }
+  return fromEnv;
+}
+
 export function createApiApp(db: Database.Database): Express {
   const app = express();
   app.disable('x-powered-by');
-  app.use((_req, res, next) => {
+  const allowedOrigins = getAllowedCorsOrigins();
+  app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    const origin = req.header('origin')?.replace(/\/+$/, '');
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
     next();
   });
   app.use(express.json({ limit: '2mb' }));
@@ -241,6 +267,75 @@ export function createApiApp(db: Database.Database): Express {
     res.json({ token, user });
   });
 
+  // Firebase Auth ID Token -> SmartGrowth AI API session bridge (verifies Google Sign-In cryptographically)
+  app.post('/api/auth/firebase-session', async (req, res) => {
+    try {
+      const { idToken, activeMode, currency } = req.body ?? {};
+      if (typeof idToken !== 'string' || !idToken.trim()) {
+        res.status(400).json({ error: 'Firebase idToken is required.' });
+        return;
+      }
+
+      const verified = await verifyFirebaseIdToken(idToken);
+      const adminEmail = (
+        process.env.ADMIN_EMAIL?.trim() || 'fsonsdigitalmarketing@gmail.com'
+      ).toLowerCase();
+      const shouldBeAdmin = verified.email === adminEmail;
+
+      const safeMode: WorkspaceMode = activeMode === 'sme' ? 'sme' : 'individual';
+      const safeCurrency =
+        typeof currency === 'string' && /^[A-Z]{3}$/.test(currency.trim().toUpperCase())
+          ? currency.trim().toUpperCase()
+          : 'USD';
+
+      const existing = userRepo.findByEmail(verified.email);
+      let publicUser;
+      if (existing) {
+        const { passwordHash: _ignored, ...rest } = existing;
+        publicUser = rest;
+      } else {
+        const userId = `fb_${verified.uid.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)}`;
+        publicUser = userRepo.create({
+          id: userId,
+          email: verified.email,
+          phone: null,
+          fullName: verified.name,
+          passwordHash: hashPassword(crypto.randomBytes(24).toString('hex')),
+          role: shouldBeAdmin ? 'admin' : safeMode,
+          activeMode: safeMode,
+          isSyntheticDemo: false,
+        });
+
+        profileRepo.upsertIndividualProfile({
+          id: `ind_${crypto.randomUUID()}`,
+          userId: publicUser.id,
+          occupation: '',
+          city: '',
+          currency: safeCurrency,
+          monthlyIncomeGoal: 0,
+          emergencyFundTargetMonths: 3,
+        });
+
+        auditRepo.log({
+          id: `aud_${crypto.randomUUID()}`,
+          actorUserId: publicUser.id,
+          actorEmail: publicUser.email,
+          action: 'FIREBASE_USER_PROVISIONED',
+          resourceType: 'user',
+          resourceId: publicUser.id,
+          details: { role: publicUser.role, currency: safeCurrency },
+        });
+      }
+
+      const token = signSessionToken(publicUser);
+      res.json({ token, user: publicUser });
+    } catch (err) {
+      res.status(401).json({
+        error: err instanceof Error ? err.message : 'Firebase authentication failed.',
+      });
+    }
+  });
+
   // Current Authenticated User & Workspace Mode
   app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res) => {
     res.json({ user: req.authUser });
@@ -306,7 +401,10 @@ export function createApiApp(db: Database.Database): Express {
       sector: typeof sector === 'string' && sector.trim() ? sector.trim() : 'General Commerce',
       registrationStatus: regStatus,
       staffCount: Math.max(1, Math.floor(Number(staffCount ?? 1) || 1)),
-      currency: typeof currency === 'string' && currency.trim() ? currency.trim().slice(0, 6) : 'NGN',
+      currency:
+        typeof currency === 'string' && currency.trim()
+          ? currency.trim().toUpperCase().slice(0, 6)
+          : 'USD',
     });
     profileRepo.addBusinessMembership({
       id: `bm_${crypto.randomUUID()}`,
@@ -438,7 +536,7 @@ export function createApiApp(db: Database.Database): Express {
       }
 
       let resolvedSmeId: string | null = null;
-      let currency = 'NGN';
+      let currency = 'USD';
       if (safeAudience === 'sme') {
         if (typeof smeProfileId === 'string' && smeProfileId.trim()) {
           if (!profileRepo.hasSmeMembership(smeProfileId, userId)) {
@@ -446,16 +544,18 @@ export function createApiApp(db: Database.Database): Express {
             return;
           }
           resolvedSmeId = smeProfileId;
-          currency = profileRepo.getSmeProfileById(smeProfileId)?.currency ?? 'NGN';
+          currency = profileRepo.getSmeProfileById(smeProfileId)?.currency ?? 'USD';
         } else {
           const userSmes = profileRepo.listSmeProfilesForUser(userId);
           if (userSmes.length > 0) {
             resolvedSmeId = userSmes[0].id;
             currency = userSmes[0].currency;
+          } else {
+            currency = profileRepo.getIndividualProfile(userId)?.currency ?? 'USD';
           }
         }
       } else {
-        currency = profileRepo.getIndividualProfile(userId)?.currency ?? 'NGN';
+        currency = profileRepo.getIndividualProfile(userId)?.currency ?? 'USD';
       }
 
       const output =
@@ -508,12 +608,42 @@ export function createApiApp(db: Database.Database): Express {
   app.post('/api/recommendations/generate', requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const userId = req.authUser!.id;
-      const { assessmentResultId, question } = req.body ?? {};
+      const { assessmentResultId, question, language, assessmentFallback } = req.body ?? {};
       if (typeof assessmentResultId !== 'string' || !assessmentResultId.trim()) {
         res.status(400).json({ error: 'assessmentResultId is required.' });
         return;
       }
-      const assessment = assessmentRepo.getResultById(assessmentResultId);
+      let assessment = assessmentRepo.getResultById(assessmentResultId);
+      if (!assessment && assessmentFallback && typeof assessmentFallback === 'object') {
+        const fbAudience: WorkspaceMode =
+          assessmentFallback.audience === 'sme' ? 'sme' : 'individual';
+        const fbAnswers =
+          assessmentFallback.answers && typeof assessmentFallback.answers === 'object'
+            ? (assessmentFallback.answers as Record<string, unknown>)
+            : null;
+        const fbCurrency =
+          typeof assessmentFallback.currency === 'string' &&
+          /^[A-Z]{3}$/.test(assessmentFallback.currency.trim().toUpperCase())
+            ? assessmentFallback.currency.trim().toUpperCase()
+            : 'USD';
+        const template = assessmentRepo.getTemplateByAudience(fbAudience);
+        if (fbAnswers && template) {
+          const output =
+            fbAudience === 'sme'
+              ? calculateSmeAssessment(fbAnswers, fbCurrency)
+              : calculateIndividualAssessment(fbAnswers, fbCurrency);
+          assessment = assessmentRepo.saveAssessment({
+            submissionId: `sub_${crypto.randomUUID()}`,
+            resultId: assessmentResultId,
+            userId,
+            smeProfileId: null,
+            templateId: template.id,
+            audience: fbAudience,
+            answers: fbAnswers,
+            output,
+          });
+        }
+      }
       if (!assessment) {
         res.status(404).json({ error: 'Assessment result not found.' });
         return;
@@ -527,6 +657,7 @@ export function createApiApp(db: Database.Database): Express {
         userId,
         assessment,
         question: typeof question === 'string' ? question : null,
+        language: language === 'ha' ? 'ha' : 'en',
       });
 
       auditRepo.log({
@@ -625,8 +756,8 @@ export function createApiApp(db: Database.Database): Express {
 
     const currency =
       assessment.audience === 'sme' && assessment.smeProfileId
-        ? profileRepo.getSmeProfileById(assessment.smeProfileId)?.currency ?? 'NGN'
-        : profileRepo.getIndividualProfile(userId)?.currency ?? 'NGN';
+        ? profileRepo.getSmeProfileById(assessment.smeProfileId)?.currency ?? 'USD'
+        : profileRepo.getIndividualProfile(userId)?.currency ?? 'USD';
 
     const report = reportRepo.create({
       id: `rep_${crypto.randomUUID()}`,

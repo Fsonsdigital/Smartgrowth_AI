@@ -9,11 +9,19 @@ import type {
   WorkspaceMode,
 } from '../../shared/types';
 import { api } from '../../lib/api';
+import { saveAssessmentToFirestore } from '../../lib/firebase';
+import {
+  translateOption,
+  translateQuestion,
+  translateReadinessTier,
+  useLanguage,
+} from '../../lib/i18n';
 import { SyntheticBanner } from '../BrandMark';
 import { FormulaFactorBars } from '../Charts';
 
 interface AssessmentScreenProps {
   user: PublicUser;
+  firebaseUid: string | null;
   mode: WorkspaceMode;
   individualCurrency: string;
   smes: SmeProfile[];
@@ -52,6 +60,7 @@ function getInitialAnswers(isDemo: boolean, mode: WorkspaceMode): Record<string,
 
 export function AssessmentScreen({
   user,
+  firebaseUid,
   mode,
   individualCurrency,
   smes,
@@ -59,6 +68,7 @@ export function AssessmentScreen({
   onAssessmentSaved,
   onNavigate,
 }: AssessmentScreenProps) {
+  const { language, isHausa } = useLanguage();
   const [template, setTemplate] = useState<AssessmentTemplate | null>(null);
   const [step, setStep] = useState(1);
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
@@ -123,7 +133,12 @@ export function AssessmentScreen({
         } else {
           const parsed = Number(raw);
           if (!Number.isFinite(parsed) || parsed < q.minValue) {
-            throw new Error(`"${q.label}" must be a number >= ${q.minValue}.`);
+            const localizedQ = translateQuestion(q.fieldKey, q.label, q.helpText, language);
+            throw new Error(
+              isHausa
+                ? `"${localizedQ.label}" dole ne ya zama lamba >= ${q.minValue}.`
+                : `"${localizedQ.label}" must be a number >= ${q.minValue}.`
+            );
           }
           payloadAnswers[q.fieldKey] = parsed;
         }
@@ -134,14 +149,35 @@ export function AssessmentScreen({
         answers: payloadAnswers,
         smeProfileId: mode === 'sme' ? selectedSmeId || undefined : undefined,
       });
+      if (firebaseUid) {
+        await saveAssessmentToFirestore(firebaseUid, res.result, activeCurrency);
+      }
       setCalculatedResult(res.result);
       onAssessmentSaved(res.result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Calculation failed.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : isHausa
+            ? 'Ƙididdiga ta ci tura.'
+            : 'Calculation failed.'
+      );
     } finally {
       setSubmitting(false);
     }
   }
+
+  const localizedTemplateTitle = isHausa
+    ? mode === 'sme'
+      ? 'Gwajin Motsin Kuɗi da Lafiyar Kasuwanci (SME)'
+      : 'Gwajin Lafiyar Kuɗin Mutum Ɗaya'
+    : template?.title;
+
+  const localizedTemplateDesc = isHausa
+    ? mode === 'sme'
+      ? 'Gwaji mai matakai 5 don auna motsin kuɗin aiki, kuɗin gudanarwa, nauyin bashi, da juriyar tsabar kuɗi.'
+      : 'Gwaji mai matakai 5 don auna adadin tanadi, kashe kuɗi, nauyin bashi, ragi/gibi, da tanadin gaggawa.'
+    : template?.description;
 
   return (
     <div className="space-y-6">
@@ -150,10 +186,12 @@ export function AssessmentScreen({
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-slate-500">
-            5-Step Assessment · {mode === 'sme' ? 'SME Engine' : 'Individual Engine'}
+            {isHausa
+              ? `Gwaji Mai Matakai 5 · ${mode === 'sme' ? 'Tsarin Kasuwanci (SME)' : 'Tsarin Mutum Ɗaya'}`
+              : `5-Step Health Assessment · ${mode === 'sme' ? 'SME / Business Engine' : 'Individual Engine'}`}
           </p>
           <h1 className="mt-0.5 font-display text-2xl font-bold text-slate-900">
-            Financial Health Assessment
+            {isHausa ? 'Gwajin Lafiyar Kuɗi na AI' : 'AI Financial Health Assessment'}
           </h1>
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
@@ -164,7 +202,7 @@ export function AssessmentScreen({
               mode === 'individual' ? 'bg-[#043927] text-white' : 'text-slate-600'
             }`}
           >
-            Individual Form
+            {isHausa ? 'Fom ɗin Mutum Ɗaya' : 'Individual Form'}
           </button>
           <button
             type="button"
@@ -173,7 +211,7 @@ export function AssessmentScreen({
               mode === 'sme' ? 'bg-[#043927] text-white' : 'text-slate-600'
             }`}
           >
-            SME Form
+            {isHausa ? 'Fom ɗin Kasuwanci (SME)' : 'SME Form'}
           </button>
         </div>
       </div>
@@ -196,7 +234,7 @@ export function AssessmentScreen({
                         ? 'bg-emerald-100 text-emerald-800'
                         : 'bg-slate-100 text-slate-500'
                   }`}
-                  aria-label={`Step ${s}`}
+                  aria-label={isHausa ? `Mataki ${s}` : `Step ${s}`}
                 >
                   {s}
                 </button>
@@ -206,7 +244,7 @@ export function AssessmentScreen({
             {mode === 'sme' && smes.length > 0 && step === 1 && (
               <div className="mb-5">
                 <label htmlFor="sme-select" className="block text-sm font-medium text-slate-700">
-                  Business Profile
+                  {isHausa ? 'Bayanan Kasuwanci' : 'Business Profile'}
                 </label>
                 <select
                   id="sme-select"
@@ -233,52 +271,59 @@ export function AssessmentScreen({
             )}
 
             <div className="space-y-5">
-              {currentQuestions.map((q) => (
-                <div key={q.id}>
-                  <label
-                    htmlFor={`q_${q.fieldKey}`}
-                    className="block text-sm font-semibold text-slate-900"
-                  >
-                    {q.label}
-                    {q.isRequired && <span className="ml-1 text-red-600">*</span>}
-                  </label>
-                  <p id={`help_${q.fieldKey}`} className="mt-0.5 text-xs text-slate-500">
-                    {q.helpText}
-                  </p>
-                  {q.inputType === 'select' ? (
-                    <select
-                      id={`q_${q.fieldKey}`}
-                      aria-describedby={`help_${q.fieldKey}`}
-                      value={answers[q.fieldKey] ?? ''}
-                      onChange={(e) => handleFieldChange(q.fieldKey, e.target.value)}
-                      className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+              {currentQuestions.map((q) => {
+                const localizedQ = translateQuestion(q.fieldKey, q.label, q.helpText, language);
+                return (
+                  <div key={q.id}>
+                    <label
+                      htmlFor={`q_${q.fieldKey}`}
+                      className="block text-sm font-semibold text-slate-900"
                     >
-                      {(q.options ?? []).map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="relative mt-2">
-                      <span className="pointer-events-none absolute left-3.5 top-3 font-mono text-xs text-slate-500">
-                        {q.inputType === 'currency' ? activeCurrency : q.unit}
-                      </span>
-                      <input
+                      {localizedQ.label}
+                      {q.isRequired && <span className="ml-1 text-red-600">*</span>}
+                    </label>
+                    <p id={`help_${q.fieldKey}`} className="mt-0.5 text-xs text-slate-500">
+                      {localizedQ.helpText}
+                    </p>
+                    {q.inputType === 'select' ? (
+                      <select
                         id={`q_${q.fieldKey}`}
                         aria-describedby={`help_${q.fieldKey}`}
-                        type="number"
-                        min={q.minValue}
-                        step="any"
-                        placeholder={user.isSyntheticDemo ? undefined : '0'}
                         value={answers[q.fieldKey] ?? ''}
                         onChange={(e) => handleFieldChange(q.fieldKey, e.target.value)}
-                        className="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pl-16 pr-3.5 font-mono text-sm tabular-nums text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                      >
+                        {(q.options ?? []).map((opt) => (
+                          <option key={opt} value={opt}>
+                            {translateOption(opt, language)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="relative mt-2">
+                        <span className="pointer-events-none absolute left-3.5 top-3 font-mono text-xs text-slate-500">
+                          {q.inputType === 'currency'
+                            ? activeCurrency
+                            : isHausa && q.unit === 'people'
+                              ? 'mutane'
+                              : q.unit}
+                        </span>
+                        <input
+                          id={`q_${q.fieldKey}`}
+                          aria-describedby={`help_${q.fieldKey}`}
+                          type="number"
+                          min={q.minValue}
+                          step="any"
+                          placeholder={user.isSyntheticDemo ? undefined : '0'}
+                          value={answers[q.fieldKey] ?? ''}
+                          onChange={(e) => handleFieldChange(q.fieldKey, e.target.value)}
+                          className="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pl-16 pr-3.5 font-mono text-sm tabular-nums text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="mt-8 flex items-center justify-between gap-3 border-t border-slate-100 pt-5">
@@ -289,7 +334,7 @@ export function AssessmentScreen({
                 className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-40"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                <span>Previous</span>
+                <span>{isHausa ? 'Baya' : 'Previous'}</span>
               </button>
 
               {step < maxStep ? (
@@ -298,7 +343,7 @@ export function AssessmentScreen({
                   onClick={() => setStep((s) => Math.min(maxStep, s + 1))}
                   className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#043927] px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-900"
                 >
-                  <span>Next</span>
+                  <span>{isHausa ? 'Gaba' : 'Next'}</span>
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </button>
               ) : (
@@ -309,7 +354,15 @@ export function AssessmentScreen({
                   className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                 >
                   <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                  <span>{submitting ? 'Calculating...' : 'Calculate & Save'}</span>
+                  <span>
+                    {submitting
+                      ? isHausa
+                        ? 'Ana lissafi...'
+                        : 'Calculating...'
+                      : isHausa
+                        ? 'Ƙididdige & Ajiye'
+                        : 'Calculate & Save'}
+                  </span>
                 </button>
               )}
             </div>
@@ -318,27 +371,43 @@ export function AssessmentScreen({
           <div className="lg:col-span-5 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-6">
               <p className="text-xs font-medium text-emerald-700">
-                Template {template?.version}
+                {isHausa ? 'Samfuri' : 'Template'} {template?.version}
               </p>
               <h2 className="mt-1 font-display text-lg font-bold text-slate-900">
-                {template?.title}
+                {localizedTemplateTitle}
               </h2>
-              <p className="mt-1 text-sm text-slate-600">{template?.description}</p>
+              <p className="mt-1 text-sm text-slate-600">{localizedTemplateDesc}</p>
               <p className="mt-3 text-xs text-slate-500">
-                Zero-income and missing optional values are handled safely without division-by-zero
-                or opaque black-box scoring.
+                {isHausa
+                  ? 'Ana sarrafa rashin kuɗin shiga ko ƙananan filaye cikin aminci ba tare da kuskuren lissafi ko maki marar tushe ba.'
+                  : 'Zero-income and missing optional values are handled safely without division-by-zero or opaque black-box scoring.'}
               </p>
+              {!user.isSyntheticDemo && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAnswers(mode === 'sme' ? DEFAULT_SME_ANSWERS : DEFAULT_INDIVIDUAL_ANSWERS)
+                  }
+                  className="mt-4 inline-flex min-h-[38px] items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  {isHausa
+                    ? 'Cika Misalin Alkaluma na Gwaji (Synthetic)'
+                    : 'Fill Synthetic Sample Figures'}
+                </button>
+              )}
             </div>
 
             {calculatedResult && (
               <div className="rounded-2xl border border-emerald-200 bg-white p-6">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-semibold text-emerald-700">
-                      Assessment Saved · {calculatedResult.calculationVersion}
+                      {isHausa ? 'An Ajiye Gwaji' : 'Assessment Saved'} ·{' '}
+                      {calculatedResult.calculationVersion}
                     </p>
                     <h3 className="mt-0.5 font-display text-lg font-bold text-slate-900">
-                      Readiness Tier: {calculatedResult.output.readinessTier}
+                      {isHausa ? 'Matsayi' : 'Readiness Tier'}:{' '}
+                      {translateReadinessTier(calculatedResult.output.readinessTier, language)}
                     </h3>
                   </div>
                   <button
@@ -346,7 +415,7 @@ export function AssessmentScreen({
                     onClick={() => onNavigate('recommendations')}
                     className="min-h-[40px] rounded-lg bg-[#043927] px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-900 whitespace-nowrap shrink-0"
                   >
-                    Ask AI Assistant
+                    {isHausa ? 'Buɗe Mai Ba da Shawara na AI' : 'Open AI Business Growth Coach'}
                   </button>
                 </div>
                 <div className="mt-4">

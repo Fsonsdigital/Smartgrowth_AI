@@ -1,0 +1,458 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Default-Deny Catch-All Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isOwner(userId) && isEmailVerified();
+    }
+
+    function isAdmin() {
+      return isEmailVerified() && (
+        request.auth.token.email == 'fsonsdigitalmarketing@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function parentUserExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId)) ||
+        existsAfter(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // --- Validation Blueprints ---
+    function isValidAdminMarker(data, adminId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.uid == adminId &&
+        data.email is string &&
+        data.email.size() >= 3 &&
+        data.email.size() <= 160 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'email',
+          'fullName',
+          'activeMode',
+          'currency',
+          'preferredLanguage',
+          'acceptedTerms',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'email',
+          'fullName',
+          'activeMode',
+          'currency',
+          'occupation',
+          'city',
+          'monthlyIncomeGoal',
+          'emergencyFundTargetMonths',
+          'preferredLanguage',
+          'acceptedTerms',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.uid == userId &&
+        data.uid == request.auth.uid &&
+        data.email is string &&
+        data.email.size() >= 3 &&
+        data.email.size() <= 160 &&
+        data.fullName is string &&
+        data.fullName.size() >= 1 &&
+        data.fullName.size() <= 120 &&
+        data.activeMode in ['individual', 'sme'] &&
+        data.currency is string &&
+        data.currency.size() == 3 &&
+        data.currency.matches('^[A-Z]{3}$') &&
+        (!('occupation' in data) || (data.occupation is string && data.occupation.size() <= 80)) &&
+        (!('city' in data) || (data.city is string && data.city.size() <= 80)) &&
+        (!('monthlyIncomeGoal' in data) || (data.monthlyIncomeGoal is number && data.monthlyIncomeGoal >= 0)) &&
+        (!('emergencyFundTargetMonths' in data) || (data.emergencyFundTargetMonths is number && data.emergencyFundTargetMonths >= 1 && data.emergencyFundTargetMonths <= 24)) &&
+        data.preferredLanguage in ['en', 'ha'] &&
+        data.acceptedTerms is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSmeEntity(data, userId, smeId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'businessName',
+          'sector',
+          'registrationStatus',
+          'staffCount',
+          'currency',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'userId',
+          'businessName',
+          'sector',
+          'registrationStatus',
+          'staffCount',
+          'currency',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == smeId &&
+        isValidId(data.userId) &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        data.businessName is string &&
+        data.businessName.size() >= 2 &&
+        data.businessName.size() <= 120 &&
+        data.sector is string &&
+        data.sector.size() >= 2 &&
+        data.sector.size() <= 80 &&
+        data.registrationStatus in ['registered', 'informal', 'in_progress'] &&
+        data.staffCount is number &&
+        data.staffCount >= 1 &&
+        data.staffCount <= 100000 &&
+        data.currency is string &&
+        data.currency.size() == 3 &&
+        data.currency.matches('^[A-Z]{3}$') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAssessmentRecord(data, userId, assessmentId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'audience',
+          'calculationVersion',
+          'readinessTier',
+          'summaryStatement',
+          'currency',
+          'answers',
+          'metrics',
+          'formulas',
+          'dataQualityFlags',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'userId',
+          'audience',
+          'smeProfileId',
+          'calculationVersion',
+          'readinessTier',
+          'summaryStatement',
+          'currency',
+          'answers',
+          'metrics',
+          'formulas',
+          'dataQualityFlags',
+          'createdAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == assessmentId &&
+        isValidId(data.userId) &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        data.audience in ['individual', 'sme'] &&
+        (!('smeProfileId' in data) || (data.smeProfileId is string && data.smeProfileId.size() <= 128)) &&
+        data.calculationVersion is string &&
+        data.calculationVersion.size() >= 1 &&
+        data.calculationVersion.size() <= 32 &&
+        data.readinessTier in ['Resilient', 'Developing', 'Vulnerable', 'Needs Data'] &&
+        data.summaryStatement is string &&
+        data.summaryStatement.size() >= 1 &&
+        data.summaryStatement.size() <= 600 &&
+        data.currency is string &&
+        data.currency.size() == 3 &&
+        data.currency.matches('^[A-Z]{3}$') &&
+        data.answers is map &&
+        data.metrics is map &&
+        data.formulas is list &&
+        data.formulas.size() <= 10 &&
+        (data.formulas.size() == 0 || data.formulas[0] is map) &&
+        data.dataQualityFlags is list &&
+        data.dataQualityFlags.size() <= 15 &&
+        (data.dataQualityFlags.size() == 0 || data.dataQualityFlags[0] is string) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidCoachRecommendation(data, userId, recId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'assessmentResultId',
+          'audience',
+          'language',
+          'promptVersion',
+          'modelName',
+          'safetyPassed',
+          'fallbackUsed',
+          'structuredOutput',
+          'sources',
+          'safetyFlags',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'userId',
+          'assessmentResultId',
+          'audience',
+          'language',
+          'promptVersion',
+          'modelName',
+          'question',
+          'safetyPassed',
+          'fallbackUsed',
+          'fallbackReason',
+          'structuredOutput',
+          'sources',
+          'safetyFlags',
+          'createdAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == recId &&
+        isValidId(data.userId) &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        isValidId(data.assessmentResultId) &&
+        data.audience in ['individual', 'sme'] &&
+        data.language in ['en', 'ha'] &&
+        data.promptVersion is string &&
+        data.promptVersion.size() >= 1 &&
+        data.promptVersion.size() <= 32 &&
+        data.modelName is string &&
+        data.modelName.size() >= 1 &&
+        data.modelName.size() <= 64 &&
+        (!('question' in data) || (data.question is string && data.question.size() <= 500)) &&
+        data.safetyPassed is bool &&
+        data.fallbackUsed is bool &&
+        (!('fallbackReason' in data) || (data.fallbackReason is string && data.fallbackReason.size() <= 300)) &&
+        data.structuredOutput is map &&
+        data.sources is list &&
+        data.sources.size() <= 10 &&
+        (data.sources.size() == 0 || data.sources[0] is map) &&
+        data.safetyFlags is list &&
+        data.safetyFlags.size() <= 15 &&
+        (data.safetyFlags.size() == 0 || data.safetyFlags[0] is string) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidPilotFeedback(data, feedbackId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'userRole',
+          'language',
+          'usefulnessRating',
+          'recommendLikelihood',
+          'mostValuableFeature',
+          'primaryUseCase',
+          'comment',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'userId',
+          'userRole',
+          'language',
+          'usefulnessRating',
+          'recommendLikelihood',
+          'mostValuableFeature',
+          'primaryUseCase',
+          'comment',
+          'createdAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == feedbackId &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.userRole in ['individual', 'sme'] &&
+        data.language in ['en', 'ha'] &&
+        data.usefulnessRating is number &&
+        data.usefulnessRating >= 1 &&
+        data.usefulnessRating <= 5 &&
+        data.recommendLikelihood is number &&
+        data.recommendLikelihood >= 1 &&
+        data.recommendLikelihood <= 5 &&
+        data.mostValuableFeature in ['health_assessment', 'ai_growth_coach', 'both'] &&
+        data.primaryUseCase is string &&
+        data.primaryUseCase.size() >= 1 &&
+        data.primaryUseCase.size() <= 120 &&
+        data.comment is string &&
+        data.comment.size() <= 1000 &&
+        data.createdAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    // Admins collection (only verified admins can read or manage)
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(adminId) && isAdmin() && isValidAdminMarker(incoming(), adminId) && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(adminId) && isAdmin();
+    }
+
+    // Private User Profiles & Subcollections
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && existing().uid == request.auth.uid);
+
+      allow create: if isVerifiedOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            isVerifiedOwner(userId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'fullName',
+              'activeMode',
+              'currency',
+              'occupation',
+              'city',
+              'monthlyIncomeGoal',
+              'emergencyFundTargetMonths',
+              'preferredLanguage',
+              'acceptedTerms',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(userId) && (isVerifiedOwner(userId) || isAdmin());
+
+      // SME Profiles subcollection (Master Gate checks parent user)
+      match /smes/{smeId} {
+        allow get: if isValidId(userId) && isValidId(smeId) && (isOwner(userId) || isAdmin());
+        allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(smeId) &&
+          isValidSmeEntity(incoming(), userId, smeId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          parentUserExists(userId);
+
+        allow update: if isSignedIn() &&
+          isValidId(userId) &&
+          isValidId(smeId) &&
+          isValidSmeEntity(incoming(), userId, smeId) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            isAdmin() ||
+            (
+              isVerifiedOwner(userId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'businessName',
+                'sector',
+                'registrationStatus',
+                'staffCount',
+                'currency',
+                'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if isValidId(userId) && isValidId(smeId) && (isVerifiedOwner(userId) || isAdmin());
+      }
+
+      // Assessments subcollection (Immutable financial snapshots)
+      match /assessments/{assessmentId} {
+        allow get: if isValidId(userId) && isValidId(assessmentId) && (isOwner(userId) || isAdmin());
+        allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(assessmentId) &&
+          isValidAssessmentRecord(incoming(), userId, assessmentId) &&
+          incoming().createdAt == request.time &&
+          parentUserExists(userId);
+
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(assessmentId) && (isVerifiedOwner(userId) || isAdmin());
+      }
+
+      // AI Growth Coach Recommendations subcollection
+      match /recommendations/{recommendationId} {
+        allow get: if isValidId(userId) && isValidId(recommendationId) && (isOwner(userId) || isAdmin());
+        allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(recommendationId) &&
+          isValidCoachRecommendation(incoming(), userId, recommendationId) &&
+          incoming().createdAt == request.time &&
+          parentUserExists(userId);
+
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(recommendationId) && (isVerifiedOwner(userId) || isAdmin());
+      }
+    }
+
+    // Prototype Validation Feedback collection
+    match /pilotFeedback/{feedbackId} {
+      allow get: if isValidId(feedbackId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+
+      allow create: if isEmailVerified() &&
+        isValidId(feedbackId) &&
+        isValidPilotFeedback(incoming(), feedbackId) &&
+        incoming().createdAt == request.time;
+
+      allow update: if false;
+      allow delete: if isValidId(feedbackId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+  }
+}

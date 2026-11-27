@@ -8,10 +8,14 @@ import type {
   WorkspaceMode,
 } from '../../shared/types';
 import { api } from '../../lib/api';
+import { saveRecommendationToFirestore } from '../../lib/firebase';
+import { useLanguage } from '../../lib/i18n';
 import { SyntheticBanner } from '../BrandMark';
 
 interface RecommendationsScreenProps {
   user: PublicUser;
+  firebaseUid: string | null;
+  activeCurrency: string;
   mode: WorkspaceMode;
   assessments: AssessmentResultRecord[];
   recommendations: RecommendationRecord[];
@@ -22,6 +26,8 @@ interface RecommendationsScreenProps {
 
 export function RecommendationsScreen({
   user,
+  firebaseUid,
+  activeCurrency,
   mode,
   assessments,
   recommendations,
@@ -29,6 +35,7 @@ export function RecommendationsScreen({
   onModeChange,
   onNavigate,
 }: RecommendationsScreenProps) {
+  const { language, isHausa } = useLanguage();
   const latestAssessment = assessments.find((a) => a.audience === mode) ?? null;
   const filteredRecs = recommendations.filter((r) => r.audience === mode);
   const activeRec = filteredRecs[0] ?? null;
@@ -46,11 +53,26 @@ export function RecommendationsScreen({
       const res = await api.generateRecommendation({
         assessmentResultId: latestAssessment.id,
         question: q || undefined,
+        language,
+        assessmentFallback: {
+          audience: latestAssessment.audience,
+          answers: latestAssessment.answers,
+          currency: activeCurrency,
+        },
       });
+      if (firebaseUid) {
+        await saveRecommendationToFirestore(firebaseUid, res.recommendation, language);
+      }
       onRecommendationCreated(res.recommendation);
       if (!customQuestion) setQuestion('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate AI guidance.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : isHausa
+            ? 'An kasa samar da shawarar AI.'
+            : 'Failed to generate AI guidance.'
+      );
     } finally {
       setGenerating(false);
     }
@@ -63,10 +85,12 @@ export function RecommendationsScreen({
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-slate-500">
-            Server-Side Gemini Assistant · Approved Knowledge Grounded
+            {isHausa
+              ? 'Mai Ba da Shawara na Gemini · Dogara da Ilimin da Aka Amince da Shi'
+              : 'Server-Side Gemini Coach · Grounded in Approved Knowledge'}
           </p>
           <h1 className="mt-0.5 font-display text-2xl font-bold text-slate-900">
-            AI Recommendations &amp; Educational Coach
+            {isHausa ? 'Mai Ba da Shawara na AI (Business Growth Coach)' : 'AI Business Growth Coach'}
           </h1>
         </div>
 
@@ -78,7 +102,7 @@ export function RecommendationsScreen({
               mode === 'individual' ? 'bg-[#043927] text-white' : 'text-slate-600'
             }`}
           >
-            For You (Individual)
+            {isHausa ? 'Lafiyar Kuɗin Kai' : 'Personal Health'}
           </button>
           <button
             type="button"
@@ -87,7 +111,7 @@ export function RecommendationsScreen({
               mode === 'sme' ? 'bg-[#043927] text-white' : 'text-slate-600'
             }`}
           >
-            For SMEs
+            {isHausa ? 'Haɓaka Kasuwanci / SME' : 'Business / SME Growth'}
           </button>
         </div>
       </div>
@@ -95,15 +119,16 @@ export function RecommendationsScreen({
       {!latestAssessment ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
           <p className="text-sm text-slate-600">
-            Complete a {mode === 'sme' ? 'SME' : 'Individual'} assessment so the AI assistant can
-            explain your calculated financial ratios.
+            {isHausa
+              ? `Kammala Gwajin Lafiyar Kuɗi na ${mode === 'sme' ? 'Kasuwanci (SME)' : 'Mutum Ɗaya'} don Mai Ba da Shawara na AI ya bayyana ma’aunin ku.`
+              : `Complete a ${mode === 'sme' ? 'SME' : 'Individual'} assessment so the AI assistant can explain your calculated financial ratios.`}
           </p>
           <button
             type="button"
             onClick={() => onNavigate('assessment')}
             className="mt-4 min-h-[44px] rounded-xl bg-[#043927] px-5 py-2 text-sm font-semibold text-white"
           >
-            Run Assessment
+            {isHausa ? 'Fara Gwaji' : 'Run Assessment'}
           </button>
         </div>
       ) : (
@@ -113,12 +138,15 @@ export function RecommendationsScreen({
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-emerald-700" aria-hidden="true" />
                 <h2 className="font-display text-base font-bold text-slate-900">
-                  Ask About Your Calculated Results
+                  {isHausa
+                    ? 'Tattaunawa Bisa Sakamakon Gwajin Ku'
+                    : 'Coach Session · Based on Your Latest Assessment'}
                 </h2>
               </div>
               <p className="mt-1 text-xs text-slate-600">
-                Grounded in approved knowledge-base records for {mode.toUpperCase()} users. Will
-                never invent loan approvals, lenders, or Shariah certificates.
+                {isHausa
+                  ? `Dogara da bayanan ilimin da aka amince da su don ${mode.toUpperCase()}. Ba ya ƙirƙirar amincewar bashi, bankuna, ko takardar shaidar Shari’a.`
+                  : `Grounded in approved knowledge-base records for ${mode.toUpperCase()} growth coaching. Never invents loan approvals, external lenders, or Shariah certificates.`}
               </p>
 
               <form
@@ -129,7 +157,9 @@ export function RecommendationsScreen({
                 className="mt-4 space-y-3"
               >
                 <label htmlFor="ai-question" className="sr-only">
-                  Ask a question about your financial assessment
+                  {isHausa
+                    ? 'Yi wa Mai Ba da Shawara na AI tambaya'
+                    : 'Ask your AI Business Growth Coach'}
                 </label>
                 <textarea
                   id="ai-question"
@@ -137,9 +167,13 @@ export function RecommendationsScreen({
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   placeholder={
-                    mode === 'sme'
-                      ? 'e.g., How can I improve my operating cash movement and cash runway?'
-                      : 'e.g., How should I prioritize savings vs monthly debt repayments?'
+                    isHausa
+                      ? mode === 'sme'
+                        ? 'misali, Ta yaya zan inganta motsin kuɗin aiki da juriyar tsabar kuɗin kasuwancina?'
+                        : 'misali, Yaya ya kamata in daidaita tsakanin tanadi da biyan bashi kowane wata?'
+                      : mode === 'sme'
+                        ? 'e.g., How can I improve operating cash movement, margins, and cash runway?'
+                        : 'e.g., How should I prioritize savings buffer vs monthly debt repayments?'
                   }
                   className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
                 />
@@ -150,30 +184,60 @@ export function RecommendationsScreen({
                 >
                   <Send className="h-4 w-4" aria-hidden="true" />
                   <span>
-                    {generating ? 'Generating Grounded Explanation...' : 'Explain My Results'}
+                    {generating
+                      ? isHausa
+                        ? 'Ana Shirya Shawarar AI...'
+                        : 'Generating Growth Coaching...'
+                      : isHausa
+                        ? 'Samo Shawarar AI'
+                        : 'Get AI Growth Coaching'}
                   </span>
                 </button>
               </form>
 
               <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
-                <p className="text-xs font-medium text-slate-500">Suggested Prompts</p>
+                <p className="text-xs font-medium text-slate-500">
+                  {isHausa ? 'Misalan Tambayoyi' : 'Suggested Coaching Prompts'}
+                </p>
                 <button
                   type="button"
                   disabled={generating}
                   onClick={() =>
-                    handleAsk('Explain each of my calculated ratios and one realistic next step.')
+                    handleAsk(
+                      isHausa
+                        ? mode === 'sme'
+                          ? 'Yi bayanin motsin kuɗin kasuwancina kuma ka ba da matakan haɓaka kasuwanci.'
+                          : 'Yi bayanin kowane ma’aunin kuɗina da mataki na gaba mai yiwuwa.'
+                        : mode === 'sme'
+                          ? 'Diagnose my operating cash movement and suggest practical cashflow growth steps.'
+                          : 'Explain each of my calculated ratios and one realistic next growth step.'
+                    )
                   }
                   className="block min-h-[40px] w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-100"
                 >
-                  Explain each of my calculated ratios
+                  {isHausa
+                    ? mode === 'sme'
+                      ? 'Nazarin motsin kuɗi & matakan haɓaka kasuwanci'
+                      : 'Yi bayanin kowane ma’aunin kuɗina'
+                    : mode === 'sme'
+                      ? 'Diagnose cashflow & practical growth steps'
+                      : 'Explain each of my calculated ratios'}
                 </button>
                 <button
                   type="button"
                   disabled={generating}
-                  onClick={() => handleAsk('Approve my N5M business loan today')}
+                  onClick={() =>
+                    handleAsk(
+                      isHausa
+                        ? 'Ka amince da bashin kasuwanci na $50,000 a yau'
+                        : 'Approve my $50,000 business loan today'
+                    )
+                  }
                   className="block min-h-[40px] w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-100"
                 >
-                  Test Safety Boundary: Request financing approval
+                  {isHausa
+                    ? 'Gwada Iyakar Tsaro: Neman amincewar bashi'
+                    : 'Test Safety Boundary: Request financing approval'}
                 </button>
               </div>
 
@@ -190,7 +254,9 @@ export function RecommendationsScreen({
             {filteredRecs.length > 0 && (
               <div className="rounded-2xl border border-slate-200 bg-white p-6">
                 <h3 className="font-display text-sm font-bold text-slate-900">
-                  Saved Guidance History ({filteredRecs.length})
+                  {isHausa
+                    ? `Tarihin Shawarwari (${filteredRecs.length})`
+                    : `Saved Guidance History (${filteredRecs.length})`}
                 </h3>
                 <ul className="mt-3 space-y-2.5 text-xs">
                   {filteredRecs.slice(0, 4).map((rec) => (
@@ -199,7 +265,7 @@ export function RecommendationsScreen({
                       className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-700"
                     >
                       <p className="font-medium text-slate-900">
-                        {rec.question ?? 'Assessment Explanation'}
+                        {rec.question ?? (isHausa ? 'Bayanin Gwaji' : 'Assessment Explanation')}
                       </p>
                       <p className="mt-1 font-mono text-[11px] text-slate-500">
                         {rec.promptVersion} · {rec.modelName} ·{' '}
@@ -216,8 +282,9 @@ export function RecommendationsScreen({
             {!activeRec ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
                 <p className="text-sm text-slate-600">
-                  Click &ldquo;Explain My Results&rdquo; to generate a structured, source-attributed
-                  explanation of your {mode} assessment.
+                  {isHausa
+                    ? `Danna "Samo Shawarar AI" don samun cikakken bayani mai madogara game da gwajin ${mode} naku.`
+                    : `Click "Get AI Growth Coaching" to generate a structured, source-attributed explanation of your ${mode} assessment.`}
                 </p>
               </div>
             ) : (
@@ -228,12 +295,20 @@ export function RecommendationsScreen({
                       {activeRec.promptVersion} · {activeRec.modelName}
                     </p>
                     <h2 className="mt-0.5 font-display text-lg font-bold text-slate-900">
-                      Grounded Educational Guidance
+                      {isHausa ? 'Shawarar Ilimi Mai Tushe' : 'Grounded Educational Guidance'}
                     </h2>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
                     <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                    <span>{activeRec.safetyPassed ? 'Safety Verified' : 'Guardrail Held'}</span>
+                    <span>
+                      {activeRec.safetyPassed
+                        ? isHausa
+                          ? 'An Tabbatar da Tsaro'
+                          : 'Safety Verified'
+                        : isHausa
+                          ? 'An Kiyaye Iyakar Tsaro'
+                          : 'Guardrail Held'}
+                    </span>
                   </div>
                 </div>
 
@@ -241,7 +316,11 @@ export function RecommendationsScreen({
                   <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                     <div>
-                      <p className="font-semibold">Deterministic Knowledge-Base Fallback Active</p>
+                      <p className="font-semibold">
+                        {isHausa
+                          ? 'Bayanin Ilimi na Zahiri Yana Aiki'
+                          : 'Deterministic Knowledge-Base Fallback Active'}
+                      </p>
                       <p className="mt-0.5">{activeRec.fallbackReason}</p>
                     </div>
                   </div>
@@ -249,7 +328,9 @@ export function RecommendationsScreen({
 
                 {activeRec.structuredOutput.unsupportedOrRestricted && (
                   <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-                    <p className="font-semibold">Policy Boundary Enforced</p>
+                    <p className="font-semibold">
+                      {isHausa ? 'An Kiyaye Ƙa’idar Tsaro' : 'Policy Boundary Enforced'}
+                    </p>
                     <p className="mt-1">
                       {activeRec.structuredOutput.refusalReason ??
                         activeRec.structuredOutput.summary}
@@ -259,7 +340,7 @@ export function RecommendationsScreen({
 
                 <div>
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Summary
+                    {isHausa ? 'Taƙaitaccen Bayani' : 'Summary'}
                   </h3>
                   <p className="mt-1.5 text-sm leading-relaxed text-slate-800">
                     {activeRec.structuredOutput.summary}
@@ -268,7 +349,7 @@ export function RecommendationsScreen({
 
                 <div>
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Your Calculated Metrics Explained
+                    {isHausa ? 'Bayanin Ma’aunin da Aka Ƙididdige' : 'Your Calculated Metrics Explained'}
                   </h3>
                   <div className="mt-2 space-y-2.5">
                     {activeRec.structuredOutput.calculatedMetricsExplained.map((m) => (
@@ -292,7 +373,7 @@ export function RecommendationsScreen({
 
                 <div>
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Educational Action Steps
+                    {isHausa ? 'Matakan Aiki na Koyo da Haɓaka' : 'Educational Action Steps'}
                   </h3>
                   <div className="mt-2 space-y-2.5">
                     {activeRec.structuredOutput.educationalActions.map((act) => (
@@ -313,7 +394,11 @@ export function RecommendationsScreen({
                 <div className="border-t border-slate-100 pt-4">
                   <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                     <BookOpen className="h-4 w-4 text-emerald-700" aria-hidden="true" />
-                    <span>Approved Knowledge Sources Cited ({activeRec.sources.length})</span>
+                    <span>
+                      {isHausa
+                        ? `Madogaran Ilimi da Aka Tabbatar (${activeRec.sources.length})`
+                        : `Approved Knowledge Sources Cited (${activeRec.sources.length})`}
+                    </span>
                   </div>
                   <ul className="mt-2 space-y-1.5 text-xs text-slate-600">
                     {activeRec.sources.map((src) => (

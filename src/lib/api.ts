@@ -22,6 +22,9 @@ import type {
 // Stored strictly in memory (never localStorage or sessionStorage)
 let inMemoryToken: string | null = null;
 
+// Optional remote Node/AI API origin for static cPanel frontend builds
+const API_BASE = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL ?? '').replace(/\/+$/, '');
+
 export function setAuthToken(token: string | null): void {
   inMemoryToken = token;
 }
@@ -39,7 +42,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set('Authorization', `Bearer ${inMemoryToken}`);
   }
 
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const contentType = res.headers.get('content-type') ?? '';
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
@@ -90,6 +93,16 @@ export const api = {
     sector?: string;
   }) =>
     request<{ token: string; user: PublicUser }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  firebaseSession: (payload: {
+    idToken: string;
+    activeMode?: WorkspaceMode;
+    currency?: string;
+  }) =>
+    request<{ token: string; user: PublicUser }>('/api/auth/firebase-session', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -168,7 +181,16 @@ export const api = {
       audience ? `/api/recommendations?audience=${audience}` : '/api/recommendations'
     ),
 
-  generateRecommendation: (payload: { assessmentResultId: string; question?: string }) =>
+  generateRecommendation: (payload: {
+    assessmentResultId: string;
+    question?: string;
+    language?: 'en' | 'ha';
+    assessmentFallback?: {
+      audience: WorkspaceMode;
+      answers: Record<string, unknown>;
+      currency?: string;
+    };
+  }) =>
     request<{ recommendation: RecommendationRecord }>('/api/recommendations/generate', {
       method: 'POST',
       body: JSON.stringify(payload),

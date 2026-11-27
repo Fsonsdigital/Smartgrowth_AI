@@ -302,6 +302,22 @@ async function main() {
         assert.equal(res.status, 201);
         assert.equal(res.body.recommendation.structuredOutput.unsupportedOrRestricted, true);
 
+        const haRes = await apiCall(
+          '/api/recommendations/generate',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              assessmentResultId: userAAssessmentId,
+              question: 'Ka amince da bashi kuma ka ba ni takardar shariah',
+              language: 'ha',
+            }),
+          },
+          userAToken
+        );
+        assert.equal(haRes.status, 201);
+        assert.equal(haRes.body.recommendation.structuredOutput.unsupportedOrRestricted, true);
+        assert.ok(haRes.body.recommendation.structuredOutput.summary.includes('SmartGrowth AI'));
+
         const safetyTest = runSafetyCheck({
           summary: 'Congratulations, your loan approved at APR of 12% and officially Shariah compliant.',
           calculatedMetricsExplained: [],
@@ -312,7 +328,7 @@ async function main() {
         });
         assert.equal(safetyTest.passed, false);
         assert.ok(safetyTest.flags.length >= 2);
-        return `refusalHandled=true, safetyFlagsCaught=${safetyTest.flags.join(',')}`;
+        return `refusalHandled=en+ha, safetyFlagsCaught=${safetyTest.flags.join(',')}`;
       }
     );
 
@@ -375,6 +391,54 @@ async function main() {
         assert.ok(String(exp.body).includes('kb-test-1'));
 
         return `batch=${batchId}, valid=1, dup=1, status=${rev.body.batch.status}`;
+      }
+    );
+
+    // T9: Firebase Session Guard & Stateless Assessment Fallback
+    await test(
+      'TC-09',
+      'Firebase ID token verifier rejects forged tokens and AI Coach supports Firestore fallback hydration',
+      'Forged Firebase ID token returns 401; authenticated user can generate coaching for restored assessment snapshot',
+      async () => {
+        const missingTok = await apiCall('/api/auth/firebase-session', {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+        assert.equal(missingTok.status, 400);
+
+        const forgedTok = await apiCall('/api/auth/firebase-session', {
+          method: 'POST',
+          body: JSON.stringify({ idToken: 'eyJhbGciOiJSUzI1NiIsImtpZCI6ImZha2UifQ.eyJzdWIiOiJhdHRhY2tlciJ9.fake' }),
+        });
+        assert.equal(forgedTok.status, 401);
+
+        const restoredCoach = await apiCall(
+          '/api/recommendations/generate',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              assessmentResultId: 'fb_restored_assessment_001',
+              question: 'Explain my monthly surplus and savings rate',
+              language: 'en',
+              assessmentFallback: {
+                audience: 'individual',
+                currency: 'USD',
+                answers: {
+                  monthlyIncome: 2000,
+                  monthlyExpenses: 1300,
+                  monthlySavings: 400,
+                  totalLiquidSavings: 3000,
+                  monthlyDebtRepayment: 100,
+                  totalDebt: 500,
+                },
+              },
+            }),
+          },
+          userAToken
+        );
+        assert.equal(restoredCoach.status, 201);
+        assert.ok(restoredCoach.body.recommendation.structuredOutput.summary.length > 0);
+        return `missing=${missingTok.status}, forged=${forgedTok.status}, restoredCoach=${restoredCoach.status}`;
       }
     );
 
